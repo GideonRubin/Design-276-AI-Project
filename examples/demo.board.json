@@ -1,0 +1,254 @@
+{
+ "format": "dschool-whiteboard",
+ "schemaVersion": 1,
+ "board": {
+  "id": "demo",
+  "title": "Waiting-room redesign"
+ },
+ "elements": [
+  {
+   "id": "e_94edf7de12a9422f",
+   "kind": "shape",
+   "shape": "arrow",
+   "x": 192,
+   "y": 16,
+   "w": 160,
+   "h": 112,
+   "rotation": 0,
+   "z": 4,
+   "style": {
+    "stroke": "#1B1B1B",
+    "fill": null,
+    "color": null,
+    "strokeWidth": 4,
+    "fontSize": null
+   },
+   "text": "",
+   "points": [
+    [
+     0,
+     112
+    ],
+    [
+     160,
+     0
+    ]
+   ],
+   "seed": 2101907,
+   "authorId": "p_1cfc79b069fb419b",
+   "authorName": "Gidi",
+   "authorType": "human",
+   "createdAt": 1790194555655,
+   "updatedAt": 1790194556081,
+   "version": 1,
+   "deleted": false
+  },
+  {
+   "id": "e_51f2507e17a74a35",
+   "kind": "note",
+   "shape": null,
+   "x": -26,
+   "y": -146,
+   "w": 180,
+   "h": 180,
+   "rotation": -0.4,
+   "z": 2,
+   "style": {
+    "stroke": "#1B1B1B",
+    "fill": null,
+    "color": "yellow",
+    "strokeWidth": 4,
+    "fontSize": null
+   },
+   "text": "What if the line came to you?",
+   "points": [],
+   "seed": 337135227,
+   "authorId": "p_1cfc79b069fb419b",
+   "authorName": "Gidi",
+   "authorType": "human",
+   "createdAt": 1790194555521,
+   "updatedAt": 1790194631836,
+   "version": 5,
+   "deleted": false
+  },
+  {
+   "id": "e_f0ced9d1e5ac4a65",
+   "kind": "shape",
+   "shape": "rect",
+   "x": 256,
+   "y": -160,
+   "w": 224,
+   "h": 144,
+   "rotation": 0,
+   "z": 3,
+   "style": {
+    "stroke": "#1B1B1B",
+    "fill": null,
+    "color": null,
+    "strokeWidth": 4,
+    "fontSize": null
+   },
+   "text": "Journey map",
+   "points": [],
+   "seed": 1448805672,
+   "authorId": "p_1cfc79b069fb419b",
+   "authorName": "Gidi",
+   "authorType": "human",
+   "createdAt": 1790194555541,
+   "updatedAt": 1790194631836,
+   "version": 5,
+   "deleted": false
+  },
+  {
+   "id": "e_d48710c0c273412e",
+   "kind": "note",
+   "shape": null,
+   "x": -199.6153846153846,
+   "y": 46.230769230769226,
+   "w": 180,
+   "h": 180,
+   "rotation": 1.5,
+   "z": 5,
+   "style": {
+    "stroke": "#1B1B1B",
+    "fill": null,
+    "color": "yellow",
+    "strokeWidth": 4,
+    "fontSize": null
+   },
+   "text": "Queue = anxiety",
+   "points": [],
+   "seed": 1483373594,
+   "authorId": "p_1cfc79b069fb419b",
+   "authorName": "Gidi",
+   "authorType": "human",
+   "createdAt": 1790194631420,
+   "updatedAt": 1790194631836,
+   "version": 5,
+   "deleted": false
+  },
+  {
+   "id": "n_b0485790627a475f",
+   "kind": "note",
+   "shape": null,
+   "x": -199.6153846153846,
+   "y": 258.2307692307692,
+   "w": 180,
+   "h": 180,
+   "rotation": -2.8,
+   "z": 6,
+   "style": {
+    "stroke": "#1B1B1B",
+    "fill": null,
+    "color": "lilac",
+    "strokeWidth": 4,
+    "fontSize": null
+   },
+   "text": "HMW make waiting feel like progress?",
+   "points": [],
+   "seed": 711551,
+   "authorId": null,
+   "authorName": "Synthesis Bot",
+   "authorType": "agent",
+   "createdAt": 1790194700783,
+   "updatedAt": 1790194700783,
+   "version": 8,
+   "deleted": false
+  },
+  {
+   "id": "e_82964ce5649f4b3c",
+   "kind": "note",
+   "shape": null,
+   "x": -250,
+   "y": -170,
+   "w": 180,
+   "h": 180,
+   "rotation": 0.9,
+   "z": 1,
+   "style": {
+    "stroke": "#1B1B1B",
+    "fill": null,
+    "color": "yellow",
+    "strokeWidth": 4,
+    "fontSize": null
+   },
+   "text": "Users hate waiting in line",
+   "points": [],
+   "seed": 2029030454,
+   "authorId": "p_1cfc79b069fb419b",
+   "authorName": "Gidi",
+   "authorType": "human",
+   "createdAt": 1790194555491,
+   "updatedAt": 1790194761407,
+   "version": 12,
+   "deleted": false
+  }
+ ],
+ "comments": [
+  {
+   "id": "c_5de50fb9ddee4b66",
+   "anchor": {
+    "type": "element",
+    "elementId": "e_82964ce5649f4b3c",
+    "dx": 140.3846153846154,
+    "dy": 36.69230769230768
+   },
+   "bubbleDx": 36,
+   "bubbleDy": -64,
+   "body": "Is this from the interviews?",
+   "resolved": false,
+   "authorId": "p_1cfc79b069fb419b",
+   "authorName": "Gidi",
+   "authorType": "human",
+   "createdAt": 1790194653596,
+   "updatedAt": 1790194654005,
+   "version": 6,
+   "deleted": false,
+   "replies": [
+    {
+     "id": "r_7df28c99c38e4281",
+     "commentId": "c_5de50fb9ddee4b66",
+     "body": "Yes \u2014 4 of 6 interviewees mentioned waiting unprompted.",
+     "authorId": null,
+     "authorName": "Synthesis Bot",
+     "authorType": "agent",
+     "createdAt": 1790194700775,
+     "version": 7,
+     "deleted": false
+    },
+    {
+     "id": "r_94b9af52b1534d2d",
+     "commentId": "c_5de50fb9ddee4b66",
+     "body": "Great, let's cluster these",
+     "authorId": "p_1cfc79b069fb419b",
+     "authorName": "Gidi",
+     "authorType": "human",
+     "createdAt": 1790194737576,
+     "version": 10,
+     "deleted": false
+    }
+   ]
+  },
+  {
+   "id": "c_bdafa11ff0e84318",
+   "anchor": {
+    "type": "element",
+    "elementId": "e_d48710c0c273412e",
+    "dx": 168,
+    "dy": 12
+   },
+   "bubbleDx": 36,
+   "bubbleDy": -64,
+   "body": "Could pair with the journey map below.",
+   "resolved": false,
+   "authorId": null,
+   "authorName": "Synthesis Bot",
+   "authorType": "agent",
+   "createdAt": 1790194700791,
+   "updatedAt": 1790194700791,
+   "version": 9,
+   "deleted": false,
+   "replies": []
+  }
+ ]
+}

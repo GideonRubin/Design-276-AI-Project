@@ -1,0 +1,157 @@
+@import '@fontsource/space-grotesk/400.css';
+@import '@fontsource/space-grotesk/500.css';
+@import '@fontsource/space-grotesk/700.css';
+@import '@fontsource/caveat/500.css';
+@import '@fontsource/caveat/700.css';
+
+:root {
+  --ink: #1b1b1b;
+  --ink-2: #4a4740;
+  --ink-3: #8a857a;
+  --paper: #faf7f0;
+  --paper-2: #f2eee3;
+  --line: #e4ded0;
+  --dot: #d9d2c1;
+
+  --marigold: #ffc83d;
+  --marigold-soft: #ffe8a3;
+  --coral: #ff6b5b;
+  --teal: #1fa59a;
+  --lilac: #9c84f5;
+  --sky: #4da8f0;
+
+  --comment: #ffd84d;
+  --comment-edge: #e8b400;
+
+  --font-ui: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-hand: 'Caveat', 'Comic Sans MS', cursive;
+
+  --radius: 14px;
+  --radius-lg: 22px;
+  --shadow-1: 0 1px 2px rgba(40, 30, 10, 0.08), 0 2px 6px rgba(40, 30, 10, 0.06);
+  --shadow-2: 0 2px 4px rgba(40, 30, 10, 0.08), 0 10px 24px rgba(40, 30, 10, 0.1);
+  --shadow-note: 0 1px 1px rgba(60, 40, 0, 0.1), 0 4px 8px rgba(60, 40, 0, 0.08), 0 12px 22px -6px rgba(60, 40, 0, 0.18);
+  --shadow-note-lift: 0 2px 2px rgba(60, 40, 0, 0.1), 0 10px 18px rgba(60, 40, 0, 0.1), 0 26px 40px -10px rgba(60, 40, 0, 0.28);
+
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* ---------- shared controls ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 2px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 999px;
+  padding: 12px 22px;
+  font-weight: 700;
+  font-size: 16px;
+  transition: transform 160ms var(--spring), box-shadow 160ms var(--ease), background 160ms;
+  box-shadow: 0 3px 0 0 var(--ink-2);
+}
+.btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 0 0 var(--ink-2);
+}
+.btn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 0 var(--ink-2);
+}
+.btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.btn.ghost {
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+}
+.btn.ghost:hover:not(:disabled) {
+  background: var(--paper-2);
+  box-shadow: none;
+}
+.btn.small {
+  padding: 7px 14px;
+  font-size: 14px;
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  transition: background 120ms, transform 160ms var(--spring);
+}
+.icon-btn:hover {
+  background: var(--paper-2);
+}
+.icon-btn[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.kbd {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  opacity: 0.6;
+}
+
+/* Uses `scale` (not `transform`) so it composes with elements positioned via transform. */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    translate: 0 12px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}

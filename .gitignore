@@ -1,0 +1,8 @@
+node_modules
+dist
+data/*.db*
+.vercel
+.env*
+!.env.example
+
+.claude/settings.local.json

@@ -1,0 +1,245 @@
+.onb {
+  position: relative;
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 80px 24px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 1px 1px, var(--dot) 1px, transparent 0) 0 0 / 24px 24px,
+    var(--paper);
+}
+
+.onb-brand {
+  position: fixed;
+  top: 28px;
+  left: 32px;
+  white-space: nowrap;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: 0.02em;
+}
+.onb-brand span {
+  color: var(--coral);
+}
+
+.onb-progress {
+  position: fixed;
+  top: 36px;
+  right: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.onb-progress span {
+  width: 22px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--line);
+  transition: background 300ms var(--ease), width 300ms var(--spring);
+}
+.onb-progress span[data-on='true'] {
+  background: var(--ink);
+  width: 34px;
+}
+.onb-progress em {
+  font-style: normal;
+  font-size: 13px;
+  color: var(--ink-3);
+  margin-left: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.onb-step {
+  width: min(640px, 100%);
+  animation: step-in 520ms var(--spring) both;
+}
+.onb-step[data-dir='-1'] {
+  animation-name: step-in-back;
+}
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateX(60px) rotate(1deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes step-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-60px) rotate(-1deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.onb-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 18px;
+}
+.onb-form h1 {
+  margin: 0;
+  font-size: clamp(38px, 6vw, 64px);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+  font-weight: 700;
+}
+.onb-sub {
+  margin: -4px 0 12px;
+  font-size: 18px;
+  color: var(--ink-2);
+  max-width: 34em;
+}
+
+.onb-input {
+  width: 100%;
+  font: inherit;
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  padding: 8px 2px 12px;
+  border: none;
+  border-bottom: 3px solid var(--ink);
+  background: transparent;
+  outline: none;
+  color: var(--ink);
+  transition: border-color 200ms;
+}
+.onb-input::placeholder {
+  color: var(--ink-3);
+  opacity: 0.55;
+}
+.onb-input:focus {
+  border-bottom-color: var(--coral);
+}
+.onb-input.mono {
+  font-feature-settings: 'ss01';
+}
+
+.onb-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 18px;
+}
+.onb-hint {
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+/* ---------- portrait ---------- */
+
+.portrait-wrap {
+  position: relative;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin: 10px 0;
+}
+.portrait-pad {
+  touch-action: none;
+  cursor: crosshair;
+  border-radius: 50%;
+  box-shadow: var(--shadow-2);
+  transition: transform 400ms var(--spring);
+}
+.portrait-pad:active {
+  transform: scale(1.015);
+}
+.portrait-hint {
+  position: absolute;
+  left: 150px;
+  top: 150px;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-hand);
+  font-size: 30px;
+  color: var(--ink-3);
+  pointer-events: none;
+}
+.portrait-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 18px;
+}
+.portrait-tools .icon-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+.swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1.5px var(--ink);
+  transition: background 300ms, transform 300ms var(--spring);
+}
+.dice:hover .swatch {
+  transform: rotate(90deg) scale(1.15);
+}
+
+/* ---------- board step ---------- */
+
+.me-chip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 18px 6px 6px;
+  border: none;
+  background: #fff;
+  border-radius: 999px;
+  box-shadow: var(--shadow-1);
+  font-size: 17px;
+  margin-bottom: 16px;
+  animation: pop-in 500ms var(--spring) both;
+  transition: transform 200ms var(--spring);
+}
+.me-chip:hover {
+  transform: rotate(-1.5deg) scale(1.02);
+}
+
+.recent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--ink-3);
+}
+.recent > span {
+  margin-right: 4px;
+}
+.recent-chip {
+  border: 1.5px solid var(--line);
+  background: #fff;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 14px;
+  transition: border-color 150ms, transform 200ms var(--spring);
+}
+.recent-chip:hover {
+  border-color: var(--ink);
+  transform: translateY(-1px);
+}
+
+.missing {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 10px 10px 16px;
+  background: var(--marigold-soft);
+  border-radius: var(--radius);
+  animation: fade-up 300ms var(--spring) both;
+}
+.missing.error {
+  background: #ffd9d4;
+  padding: 12px 16px;
+}
