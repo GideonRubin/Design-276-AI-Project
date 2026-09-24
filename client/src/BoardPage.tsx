@@ -11,6 +11,7 @@ import { Header } from './panels/Header'
 import { ThreadPanel } from './panels/ThreadPanel'
 import { PresenceCorner } from './panels/PresenceCorner'
 import { ZoomControls } from './panels/ZoomControls'
+import { useCrowdedLayout } from './lib/useCrowdedLayout'
 import './styles/board.css'
 
 type Status = 'loading' | 'ready' | 'missing' | 'error'
@@ -62,6 +63,16 @@ export function BoardPage() {
   }, [])
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), [])
+  // The browser tab shows which board this is.
+  useEffect(() => {
+    document.title = `#${id} · DESIGN 276`
+    return () => {
+      document.title = 'DESIGN 276 · whiteboard'
+    }
+  }, [id])
+
+  // Rearrange the bottom row when zoom, tools and people don't fit side by side.
+  useCrowdedLayout(status === 'ready')
 
   if (!profile) return <Navigate to={`/?next=${encodeURIComponent(id)}`} replace />
 

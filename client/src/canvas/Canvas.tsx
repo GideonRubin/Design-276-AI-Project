@@ -17,6 +17,7 @@ type Drag =
   | { mode: 'resize'; id: string; corner: string; orig: Element }
   | { mode: 'rotate'; id: string; orig: Element }
   | { mode: 'bubble'; id: string; start: { x: number; y: number }; orig: { dx: number; dy: number }; moved: boolean; shift: boolean }
+  | { mode: 'anchor'; id: string; start: { x: number; y: number }; bubble: { x: number; y: number }; moved: boolean }
 
 const SHAPE_TOOLS: Tool[] = ['rect', 'ellipse', 'diamond', 'arrow', 'line', 'topic']
 const DEFAULT_SIZE: Record<string, [number, number]> = { rect: [160, 100], ellipse: [140, 100], diamond: [140, 120], topic: [520, 380] }
@@ -210,6 +211,19 @@ export function Canvas() {
       useBoard.setState({ draftComment: null })
     }
 
+    // A comment's connection dot: drag it to re-point the comment.
+    const anchorHandle = target.closest<HTMLElement>('[data-anchor]')
+    if (anchorHandle && s.tool !== 'comment') {
+      const c = s.comments[anchorHandle.dataset.anchor!]
+      const a = c && anchorPoint(c, s.elements)
+      if (c && a) {
+        actions.checkpoint()
+        // Remember where the bubble is on the canvas, so it stays put while the dot moves.
+        drag.current = { mode: 'anchor', id: c.id, start: p, bubble: { x: a.x + c.bubbleDx, y: a.y + c.bubbleDy }, moved: false }
+        return
+      }
+    }
+
     // Comment bubbles are always interactive.
     const bubble = target.closest<HTMLElement>('[data-comment]')
     if (bubble && s.tool !== 'comment') {
@@ -321,7 +335,7 @@ export function Canvas() {
         })
         actions.upsertElements([el])
         // Arrows/lines that start on an element attach to it.
-        const startBinding = linear && hit && !isLinear(hit) ? hit.id : null
+        const startBinding = linear && hit && !isLinear(hit) && !isSection(hit) ? hit.id : null
         drag.current = { mode: 'create', id: el.id, start: p, tool: s.tool, startBinding }
       }
     }
@@ -359,7 +373,7 @@ export function Canvas() {
         // Visible comment threads can be box-selected too.
         const commentHits = Object.values(s.comments)
           .filter((c) => {
-            if (c.resolved && !s.showResolved) return false // hidden threads can't be box-selected
+            if ((c.resolved && !s.showResolved) || c.dmInviteId) return false // hidden threads can't be box-selected
             const a = anchorPoint(c, s.elements)
             return a && a.x >= r.x && a.x <= r.x + r.w && a.y >= r.y && a.y <= r.y + r.h
           })
@@ -439,6 +453,16 @@ export function Canvas() {
         actions.upsertElements([{ ...o, rotation: Math.round(deg * 10) / 10 }])
         return
       }
+      case 'anchor': {
+        if (!d.moved && Math.hypot(p.x - d.start.x, p.y - d.start.y) * s.camera.z < 2) return
+        d.moved = true
+        const c = s.comments[d.id]
+        if (c) {
+          const live = { ...c, anchor: { type: 'point' as const, x: p.x, y: p.y }, bubbleDx: d.bubble.x - p.x, bubbleDy: d.bubble.y - p.y }
+          useBoard.setState({ comments: { ...s.comments, [c.id]: live } })
+        }
+        return
+      }
       case 'bubble': {
         const dx = p.x - d.start.x
         const dy = p.y - d.start.y
@@ -488,7 +512,7 @@ export function Canvas() {
           const under = document
             .elementsFromPoint(e.clientX, e.clientY)
             .map((n) => (n as HTMLElement).closest<HTMLElement>('[data-id]')?.dataset.id)
-            .find((id) => id && id !== el.id && s.elements[id] && !isLinear(s.elements[id]))
+            .find((id) => id && id !== el.id && s.elements[id] && !isLinear(s.elements[id]) && !isSection(s.elements[id]))
           const endBinding = under && under !== d.startBinding ? under : null
           if (d.startBinding || endBinding) {
             // Keep the ends exactly where they were drawn, pinned to those spots on the elements so they follow them.
@@ -514,6 +538,28 @@ export function Canvas() {
         if (el && d.abs.length < 2) {
           actions.upsertElements([{ ...el, ...fitPoints([[d.abs[0][0], d.abs[0][1]], [d.abs[0][0] + 0.5, d.abs[0][1] + 0.5]]) }])
         }
+        return
+      }
+      case 'anchor': {
+        const c = s.comments[d.id]
+        if (!c) return
+        if (!d.moved) {
+          useBoard.setState({ undoStack: s.undoStack.slice(0, -1) })
+          return
+        }
+        // Dropped on an element? Pin to that spot on it (so it follows the element). Otherwise it stays a free point.
+        const p = worldAt(e)
+        const under = document
+          .elementsFromPoint(e.clientX, e.clientY)
+          .map((n) => (n as HTMLElement).closest<HTMLElement>('[data-id]')?.dataset.id)
+          .find((id) => id && s.elements[id])
+        const el = under ? s.elements[under] : undefined
+        actions.upsertComment({
+          ...c,
+          anchor: el ? { type: 'element', elementId: el.id, dx: p.x - el.x, dy: p.y - el.y } : { type: 'point', x: p.x, y: p.y },
+          bubbleDx: d.bubble.x - p.x,
+          bubbleDy: d.bubble.y - p.y,
+        })
         return
       }
       case 'bubble': {

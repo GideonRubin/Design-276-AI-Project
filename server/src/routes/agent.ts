@@ -8,13 +8,16 @@ import { NotFound, stmt, writeBoard } from '../db.js'
 import { placeNote, summarize } from '../summarize.js'
 import { snapshot } from './boards.js'
 import { isPaused, requireAgent, type AgentEnv } from '../invites.js'
-import { ack, ackThread, describeEvents, waitForEvents } from '../events.js'
+import { ack, ackThread, describeEvents, nudgeOrchestrators, queueForActivity, waitForEvents } from '../events.js'
 import { listReports, submitReport } from '../reports.js'
+import { agentDelete, canDelete } from '../deletions.js'
+import { arrangeTopic, arrangeTopics, placeInTopic, placeNear } from '../layout.js'
+import { isSection as isTopic } from '../../../shared/sections.js'
 
 /**
  * Agent API. Agents can read everything; add notes, text titles, sections, arrows,
  * comments and replies; resolve threads; and move elements to reorganize.
- * They cannot edit text or delete.
+ * They cannot edit text, and can delete only while a person has asked them to clean up.
  * Every route needs an invite token, and only works while the inviting tab is open.
  */
 export const agent = new Hono<AgentEnv>()
@@ -25,6 +28,13 @@ agent.use('/boards/:id/*', async (c, next) => {
   return requireAgent({ allowPaused: inbox })(c, next)
 })
 
+// Any change an agent makes (notes, moves, topics, arrows, comments…) nudges the board's Orchestrators to reorganize.
+agent.use('/boards/:id/*', async (c, next) => {
+  await next()
+  const write = c.req.method !== 'GET' && !/\/inbox(\/ack)?$/.test(c.req.path)
+  if (write && c.res.status < 300) await nudgeOrchestrators(c.req.param('id')!, c.get('agent').inviteId).catch(() => {})
+})
+
 /** Whoami: works even while the host is away, so agents can tell "paused" from "invalid". */
 agent.get('/session', requireAgent({ allowAway: true, allowPaused: true }), async (c) => {
   const a = c.get('agent')
@@ -32,15 +42,18 @@ agent.get('/session', requireAgent({ allowAway: true, allowPaused: true }), asyn
   return c.json({
     agentName: a.agentName,
     you: { name: a.agentName, persona: a.persona, context: a.context },
-    board: { id: snap.board.id, title: snap.board.title },
+    board: { id: snap.board.id },
     host: { active: a.hostActive },
     paused: a.paused ? { by: a.pausedBy } : false,
+    canDelete: await canDelete(a.inviteId),
     endpoints: {
       summary: `/api/agent/boards/${a.boardId}/summary`,
       notes: `/api/agent/boards/${a.boardId}/notes`,
       comments: `/api/agent/boards/${a.boardId}/comments`,
       text: `/api/agent/boards/${a.boardId}/text`,
       topics: `/api/agent/boards/${a.boardId}/topics`,
+      arrange: `/api/agent/boards/${a.boardId}/arrange`,
+      delete: `/api/agent/boards/${a.boardId}/delete`,
       arrows: `/api/agent/boards/${a.boardId}/arrows`,
       move: `/api/agent/boards/${a.boardId}/move`,
       inbox: `/api/agent/boards/${a.boardId}/inbox?wait=25`,
@@ -67,7 +80,8 @@ const live = async (id: string) => {
   }
 }
 
-agent.get('/boards/:id/summary', async (c) => c.json(summarize(await live(c.req.param('id')))))
+// Direct conversations are private: an agent only sees its own.
+agent.get('/boards/:id/summary', async (c) => c.json(summarize(await live(c.req.param('id')), { directFor: c.get('agent').inviteId })))
 
 agent.get('/boards/:id/elements', async (c) => {
   const kind = c.req.query('kind')
@@ -77,7 +91,8 @@ agent.get('/boards/:id/elements', async (c) => {
 
 agent.get('/boards/:id/comments', async (c) => {
   const resolved = c.req.query('resolved')
-  const { comments, replies } = await live(c.req.param('id'))
+  const { comments: all, replies } = await live(c.req.param('id'))
+  const comments = all.filter((x) => !x.dmInviteId || x.dmInviteId === c.get('agent').inviteId)
   const filtered = resolved === undefined ? comments : comments.filter((x) => String(x.resolved) === resolved)
   return c.json({ comments: filtered.map((x) => ({ ...x, replies: replies.filter((r) => r.commentId === x.id) })) })
 })
@@ -85,26 +100,55 @@ agent.get('/boards/:id/comments', async (c) => {
 const NOTE_W = 180
 const NOTE_H = 180
 
+/**
+ * Where to put a new item: explicit x/y, next to an element (same topic + side, free space),
+ * inside a topic (first free slot; grows the topic if full), or open space by default.
+ * `extra` = elements that had to change to make room (a topic that grew).
+ */
+function placement(
+  elements: z.infer<typeof Element>[],
+  size: { w: number; h: number },
+  body: { x?: number; y?: number; nearElementId?: string; topicId?: string },
+): { pos: { x: number; y: number }; extra: z.infer<typeof Element>[] } | { error: string } {
+  if (body.x !== undefined && body.y !== undefined) return { pos: { x: body.x, y: body.y }, extra: [] }
+  const byId = new Map(elements.map((e) => [e.id, e]))
+  if (body.nearElementId) {
+    const near = byId.get(body.nearElementId)
+    if (!near) return { error: `No element with id "${body.nearElementId}".` }
+    const spot = placeNear(elements, size, near)
+    if (spot) return { pos: spot, extra: [] }
+  }
+  if (body.topicId) {
+    const topic = byId.get(body.topicId)
+    if (!topic || !isTopic(topic)) return { error: `No topic with id "${body.topicId}".` }
+    const spot = placeInTopic(elements, size, topic)
+    if (spot) return { pos: spot, extra: [] }
+    // Full: grow the topic downward and use the new row.
+    const grown = { ...topic, h: topic.h + size.h + 24, updatedAt: Date.now() }
+    return { pos: { x: topic.x + 32, y: topic.y + topic.h - 8 }, extra: [grown] }
+  }
+  return { pos: placeNote(elements, size, body.nearElementId), extra: [] }
+}
+
 const NoteBody = z.object({
   author: AuthorName,
   text: z.string().trim().min(1).max(2000),
   color: z.enum(Object.keys(NOTE_COLORS) as [NoteColor, ...NoteColor[]]).default('yellow'),
   x: z.number().optional(),
   y: z.number().optional(),
+  /** Put it next to this element (same topic, same side of any dividing line), in free space. */
   nearElementId: z.string().optional(),
+  /** Put it inside this topic, in the first free spot (the topic grows if it's full). */
+  topicId: z.string().optional(),
 })
 
 agent.post('/boards/:id/notes', async (c) => {
   const id = c.req.param('id')
   const body = NoteBody.parse(await c.req.json())
   const snap = await live(id)
-  if (body.nearElementId && !snap.elements.some((e) => e.id === body.nearElementId)) {
-    return c.json({ error: `No element with id "${body.nearElementId}".` }, 404)
-  }
-  const pos =
-    body.x !== undefined && body.y !== undefined
-      ? { x: body.x, y: body.y }
-      : placeNote(snap.elements, { w: NOTE_W, h: NOTE_H }, body.nearElementId)
+  const place = placement(snap.elements, { w: NOTE_W, h: NOTE_H }, body)
+  if ('error' in place) return c.json({ error: place.error }, 404)
+  const pos = place.pos
   const maxZ = Math.max(0, ...snap.elements.map((e) => e.z))
   const note = Element.parse({
     id: uid('n_'),
@@ -119,7 +163,7 @@ agent.post('/boards/:id/notes', async (c) => {
     seed: Math.floor(Math.random() * 1e6),
     ...agentAuthor(c),
   })
-  const version = await writeBoard(id, (v) => [stmt.upsertElement(id, note, v)])
+  const version = await writeBoard(id, (v) => [stmt.upsertElement(id, note, v), ...place.extra.map((e) => stmt.upsertElement(id, e, v))])
   return c.json({ ...note, version }, 201)
 })
 
@@ -147,6 +191,8 @@ agent.post('/boards/:id/comments', async (c) => {
   }
   const comment = Comment.parse({ id: uid('c_'), anchor, body: body.body, ...agentAuthor(c) })
   const version = await writeBoard(id, (v) => [stmt.upsertComment(id, comment, v)])
+  // Other agents can respond to what this one wrote (mentions, comments on their notes).
+  await queueForActivity(id, { comments: [comment], replies: [] }, await snapshot(id))
   return c.json({ ...comment, version }, 201)
 })
 
@@ -161,6 +207,8 @@ agent.post('/boards/:id/comments/:cid/replies', async (c) => {
   const reply = Reply.parse({ id: uid('r_'), commentId: cid, body: body.body, ...agentAuthor(c) })
   const version = await writeBoard(id, (v) => [stmt.upsertReply(id, reply, v)])
   await ackThread(c.get('agent').inviteId, cid) // answering a thread clears its pending prompts
+  // Other agents in this thread (or @mentioned) get to respond too.
+  await queueForActivity(id, { comments: [], replies: [reply] }, await snapshot(id))
   return c.json({ ...reply, version }, 201)
 })
 
@@ -214,8 +262,8 @@ agent.get('/boards/:id/inbox', async (c) => {
     you: { name: a.agentName, persona: a.persona, context: a.context },
     events,
     next: events.length
-      ? 'Answer each event by replying in its thread (that marks it done), or POST its id to /inbox/ack to skip it. Then call /inbox?wait=25 again.'
-      : 'Nothing new. Call /inbox?wait=25 again to keep listening.',
+      ? 'Work through each event until it is done: reply in its thread (that marks it answered) and add to the board where it helps. POST an id to /inbox/ack to skip one. Then call /inbox?wait=25 again.'
+      : 'Nothing new. If you still have unfinished work on the board, keep going; otherwise call /inbox?wait=25 again to keep listening.',
   })
 })
 
@@ -339,6 +387,8 @@ const TextBody = z.object({
   y: z.number().optional(),
   /** Place it just above this element (e.g. a heading over a cluster). */
   aboveElementId: z.string().optional(),
+  nearElementId: z.string().optional(),
+  topicId: z.string().optional(),
   size: z.enum(['title', 'heading', 'label']).default('heading'),
 })
 
@@ -361,10 +411,10 @@ agent.post('/boards/:id/text', async (c) => {
     const el = snap.elements.find((e) => e.id === body.aboveElementId)
     if (!el) return c.json({ error: `No element with id "${body.aboveElementId}".` }, 404)
     pos = { x: el.x, y: el.y - size.h - 16 }
-  } else if (body.x !== undefined && body.y !== undefined) {
-    pos = { x: body.x, y: body.y }
   } else {
-    pos = placeNote(snap.elements.filter((e) => !isSection(e)), size)
+    const place = placement(snap.elements, size, body)
+    if ('error' in place) return c.json({ error: place.error }, 404)
+    pos = place.pos
   }
   const el = Element.parse({
     id: uid('e_'),
@@ -439,4 +489,69 @@ agent.post('/boards/:id/reports/:rid', async (c) => {
   const ok = await submitReport(c.req.param('id'), c.req.param('rid'), c.get('agent').inviteId, markdown)
   if (!ok) return c.json({ error: 'No report request for you with that id.' }, 404)
   return c.json({ ok: true })
+})
+
+// ---------- deleting (only when a person asked for it) ----------
+
+const DeleteBody = z.object({
+  ids: z.array(z.string()).min(1).max(200),
+  /** A short note shown to people, e.g. "duplicates of the pain-point notes". */
+  reason: z.string().trim().max(160).optional(),
+})
+
+/**
+ * Delete elements (notes, shapes, text, topics, arrows) and comment threads.
+ * Allowed only for 30 minutes after a person asks this agent to delete / clean up.
+ * People see a "removed N items · Restore" notice and can undo it in one click.
+ */
+agent.post('/boards/:id/delete', async (c) => {
+  const id = c.req.param('id')
+  const a = c.get('agent')
+  if (!(await canDelete(a.inviteId))) {
+    return c.json(
+      {
+        error: 'Deleting needs a person to ask you for it.',
+        hint: 'Reorganize instead, or ask in a comment ("may I delete these duplicates?"). A person saying "delete…" or "clean up…" to you unlocks it for 30 minutes.',
+      },
+      403,
+    )
+  }
+  const { ids, reason } = DeleteBody.parse(await c.req.json())
+  const res = await agentDelete(id, await live(id), a, [...new Set(ids)], reason ?? null)
+  if (!res.deleted.length) return c.json({ error: `Nothing to delete. Unknown id(s): ${res.unknown.join(', ')}` }, 404)
+  return c.json({ ok: true, deleted: res.deleted, unknown: res.unknown, restorable: true })
+})
+
+// ---------- arrange: tidy layout without pixel math ----------
+
+const ArrangeBody = z.object({
+  /** Tidy this topic: labels on top, a neat grid, nothing overlapping, sides of a dividing line kept apart. */
+  topicId: z.string().optional(),
+  /** Optional reading order for the topic's items. */
+  order: z.array(z.string()).max(200).optional(),
+})
+
+/**
+ * POST /arrange {topicId}: pack a topic's contents into a tidy grid (the topic resizes to fit).
+ * POST /arrange {}: space topics apart so none overlap (contents move with them).
+ */
+agent.post('/boards/:id/arrange', async (c) => {
+  const id = c.req.param('id')
+  const body = ArrangeBody.parse(await c.req.json().catch(() => ({})))
+  const snap = await live(id)
+  const all: Record<string, (typeof snap.elements)[number]> = Object.fromEntries(snap.elements.map((e) => [e.id, e]))
+  let result
+  if (body.topicId) {
+    const topic = all[body.topicId]
+    if (!topic || !isTopic(topic)) return c.json({ error: `No topic with id "${body.topicId}".` }, 404)
+    result = arrangeTopic(topic, snap.elements, body.order)
+  } else {
+    result = arrangeTopics(snap.elements)
+  }
+  const now = Date.now()
+  for (const [eid, patch] of result.changes) all[eid] = { ...all[eid], ...patch, updatedAt: now }
+  const rerouted = reflowArrows(all, result.changes.keys())
+  const changed = [...[...result.changes.keys()].map((eid) => all[eid]), ...rerouted]
+  const version = await writeBoard(id, (v) => changed.map((e) => stmt.upsertElement(id, e, v)))
+  return c.json({ ok: true, version, moved: result.changes.size, reroutedArrows: rerouted.length })
 })

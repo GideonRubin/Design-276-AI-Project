@@ -32,6 +32,8 @@ export const api = {
     ),
   createInvite: (id: string, body: { pid: string; sid: string; agentName: string; persona?: string; context?: string }) =>
     call<{ token: string; invite: { id: string; agentName: string; createdAt: number } }>('POST', `/boards/${encodeURIComponent(id)}/invites`, body),
+  restoreDeletion: (id: string, deletionId: string, sid: string) =>
+    call<{ ok: true }>('POST', `/boards/${encodeURIComponent(id)}/agent-deletions/${encodeURIComponent(deletionId)}/restore`, { sid }),
   pauseAgent: (id: string, inviteId: string, sid: string, paused: boolean) =>
     call<{ ok: true }>('POST', `/boards/${encodeURIComponent(id)}/invites/${encodeURIComponent(inviteId)}/pause`, { sid, paused }),
   revokeInvite: (id: string, inviteId: string, sid: string) =>

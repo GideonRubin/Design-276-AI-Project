@@ -91,6 +91,19 @@ const MIGRATIONS = [
      completed_at INTEGER
    )`,
   `CREATE INDEX IF NOT EXISTS reports_board ON reports (board_id, created_at)`,
+  // Every agent deletion, with the rows as they were, so anyone can restore them.
+  `CREATE TABLE IF NOT EXISTS agent_deletions (
+     id TEXT PRIMARY KEY,
+     board_id TEXT NOT NULL,
+     invite_id TEXT NOT NULL,
+     agent_name TEXT NOT NULL,
+     reason TEXT,
+     count INTEGER NOT NULL,
+     before TEXT NOT NULL,
+     created_at INTEGER NOT NULL,
+     restored_at INTEGER
+   )`,
+  `CREATE INDEX IF NOT EXISTS agent_deletions_board ON agent_deletions (board_id, created_at)`,
 ]
 
 let client: Client | null = null
@@ -127,6 +140,8 @@ const ALTERATIONS = [
   // Paused by someone on the board: the agent can't act and gets no prompts until resumed.
   `ALTER TABLE agent_invites ADD COLUMN paused_at INTEGER`,
   `ALTER TABLE agent_invites ADD COLUMN paused_by TEXT`,
+  // Until when this agent may delete: granted when a person asks it to delete / clean up.
+  `ALTER TABLE agent_invites ADD COLUMN cleanup_until INTEGER NOT NULL DEFAULT 0`,
 ]
 
 async function migrate() {

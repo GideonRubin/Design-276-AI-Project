@@ -3,6 +3,7 @@ import { api } from '../lib/api'
 import { renderMarkdown } from '../lib/markdown'
 import { AgentAvatar } from '../lib/Portrait'
 import { useBoard } from '../store/board'
+import { agentActivity, isAwake } from '../lib/agentState'
 
 const REPORT_CSS = `
   body { font: 15px/1.55 'Space Grotesk', ui-sans-serif, system-ui, sans-serif; color: #1b1b1b; max-width: 760px; margin: 40px auto; padding: 0 24px; }
@@ -45,6 +46,11 @@ export function ReportDialog({ onClose, openReportId }: { onClose: () => void; o
   const sid = useBoard((s) => s.sid)
   const agents = useBoard((s) => s.agents)
   const reports = useBoard((s) => s.reports)
+  const prompts = useBoard((s) => s.prompts)
+  const awake = (inviteId: string) => {
+    const a = agents.find((x) => x.id === inviteId)
+    return a ? isAwake(agentActivity(a, prompts)) : false
+  }
   const [pick, setPick] = useState<string | null>(agents.find((a) => a.listening)?.id ?? agents[0]?.id ?? null)
   const [pendingId, setPendingId] = useState<string | null>(openReportId ?? null)
   const [full, setFull] = useState<{ id: string; markdown: string; agentName: string; completedAt: number | null } | null>(null)
@@ -84,8 +90,7 @@ export function ReportDialog({ onClose, openReportId }: { onClose: () => void; o
     }
   }
 
-  const agentFor = (inviteId: string) => agents.find((a) => a.id === inviteId)
-  const title = `${board.title || 'Untitled wall'} — report`
+  const title = `#${board.id} — report`
   const ready = reports.filter((r) => r.status === 'ready')
 
   return (
@@ -125,19 +130,19 @@ export function ReportDialog({ onClose, openReportId }: { onClose: () => void; o
           </>
         ) : pending ? (
           <div className="report-wait">
-            <AgentAvatar size={56} sleeping={!agentFor(pending.inviteId)?.listening} />
+            <AgentAvatar size={56} sleeping={!awake(pending.inviteId)} />
             <h2>
               {pending.status === 'writing'
                 ? `${pending.agentName} is writing the report…`
-                : agentFor(pending.inviteId)?.listening
+                : awake(pending.inviteId)
                   ? `Sending to ${pending.agentName}…`
                   : `${pending.agentName} is asleep`}
             </h2>
             <p>
               {pending.status === 'writing'
                 ? 'It has the whole board: every topic, note, arrow and thread. This usually takes a minute.'
-                : agentFor(pending.inviteId)?.listening
-                  ? 'It will pick this up in a moment.'
+                : awake(pending.inviteId)
+                  ? 'It will pick this up when it checks in next.'
                   : 'The request is waiting in its inbox. Wake it from its card in the bottom-right corner (hover it and copy the wake-up message).'}
             </p>
             <span className="dots big" aria-hidden>
@@ -153,7 +158,7 @@ export function ReportDialog({ onClose, openReportId }: { onClose: () => void; o
               <span className="report-icon">📄</span>
               <div>
                 <h2>Board report</h2>
-                <p>A connected agent reads the whole wall and writes up each topic: main points, relationships, open questions, and next steps.</p>
+                <p>A connected agent reads the whole wall and writes a short, plain-language summary: what each topic is about, and what to do next.</p>
               </div>
             </div>
             {agents.length === 0 ? (
@@ -164,9 +169,11 @@ export function ReportDialog({ onClose, openReportId }: { onClose: () => void; o
                   {agents.map((a) => (
                     <label key={a.id} className={`report-agent${pick === a.id ? ' on' : ''}`}>
                       <input type="radio" name="agent" checked={pick === a.id} onChange={() => setPick(a.id)} />
-                      <AgentAvatar size={30} sleeping={!a.listening} />
+                      <AgentAvatar size={30} sleeping={!awake(a.id)} />
                       <span className="mention-name">{a.agentName}</span>
-                      <span className="mention-hint">{a.listening ? 'listening' : 'asleep · will need waking'}</span>
+                      <span className="mention-hint">
+                        {a.paused ? 'paused' : a.listening ? 'listening' : awake(a.id) ? 'working' : 'asleep · will need waking'}
+                      </span>
                     </label>
                   ))}
                 </div>

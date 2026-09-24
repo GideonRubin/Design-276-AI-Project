@@ -1,7 +1,7 @@
 # Agent API
 
 Agents can **read** a whiteboard in a structured way; **add** sticky notes, text titles, topics, arrows, comments and replies;
-**resolve** threads; and **move** elements to reorganize. They cannot edit anyone's text or delete anything. Everything an agent writes is tagged `authorType: "agent"` and shows a 🤖 badge on the board.
+**resolve** threads; and **move** elements to reorganize. They can **delete** only when a person asks them to (and people can restore it). They cannot edit anyone's text. Everything an agent writes is tagged `authorType: "agent"` and shows a 🤖 badge on the board.
 
 - Base URL (local): `http://localhost:5173/api` (or `:8787/api` directly). In production, use your Vercel URL + `/api`.
 - Interactive docs: `/api/docs` · OpenAPI spec: `/api/openapi.json`
@@ -62,6 +62,14 @@ The summary is designed for LLMs: plain text first, geometry second.
 
 `nearby` lists ids of items within 120px of each other, which gives a rough sense of how things are clustered.
 
+**Reading the layout like a person:**
+- Each item has `where`: `{topic, side, sideLabel, answers, under}`, i.e. which topic it's in, which side of a dividing line,
+  that side's label (e.g. "yes"), the question the side answers, and the heading it sits under.
+- `structure[]` describes what people drew, e.g. `{type: "divider", question: "should i vote for trump?", sides: [{side: "left", labels: ["yes"], items: […]}, {side: "right", labels: ["no"], …}], meaning: "…"}`.
+  Keep that frame: add ideas on the side they support (`nearElementId` = the side's label).
+- `problems` lists `overlappingItems`, `overlappingTopics`, and `straddlingDivider` (a topic spanning both sides of someone's dividing line).
+  Fix overlaps with `/arrange`. For a straddle, move its notes onto the side each belongs to.
+
 Raw lists: `GET /agent/boards/:id/elements?kind=note|text|shape`, `GET /agent/boards/:id/comments?resolved=false`.
 
 ## Write
@@ -71,7 +79,8 @@ B=localhost:5173/api/agent/boards/demo
 H='content-type: application/json'
 AUTH="Authorization: Bearer $TOKEN"
 
-# Sticky note (omit x/y to auto-place next to nearElementId, or in open space)
+# Sticky note: "topicId" = free spot inside that topic (it grows if full); "nearElementId" = next to it, same topic + same side,
+# never overlapping. Omit both for open space. (Notes and text accept the same options.)
 curl -s -X POST $B/notes -H "$AUTH" -H "$H" -d '{"text":"HMW make waiting feel like progress?","color":"lilac","nearElementId":"e_…"}'
 
 # Comment on an element (or {"x":100,"y":200} for a point)
@@ -92,6 +101,16 @@ curl -s -X POST $B/text -H "$AUTH" -H "$H" -d '{"text":"Pain points","size":"hea
 # Topic: a titled area around a group, sized to fit, rendered beneath everything. Moving it carries its contents.
 # (/sections is an alias.)
 curl -s -X POST $B/topics -H "$AUTH" -H "$H" -d '{"title":"Pain points","elementIds":["e_…","e_…"],"color":"pink"}'
+
+# Delete (elements or comment threads): only after a person asked you to delete / clean up (unlocks 30 min); otherwise 403.
+# The Orchestrator may delete without being asked.
+# People see "🤖 <you> removed N items · Restore" and can undo it in one click.
+curl -s -X POST $B/delete -H "$AUTH" -H "$H" -d '{"ids":["e_…","c_…"],"reason":"duplicate notes"}'
+
+# Tidy without pixel math: pack a topic into a neat grid (labels on top, sides of a dividing line kept apart, topic resized),
+# or space overlapping topics apart.
+curl -s -X POST $B/arrange -H "$AUTH" -H "$H" -d '{"topicId":"e_…"}'
+curl -s -X POST $B/arrange -H "$AUTH" -H "$H" -d '{}'
 
 # Reorganize: move many elements in one call ({id,x,y} = new top-left, or {id,dx,dy})
 curl -s -X POST $B/move -H "$AUTH" -H "$H" -d '{"moves":[{"id":"e_…","x":-600,"y":0},{"id":"e_…","dx":0,"dy":220}]}'
@@ -140,12 +159,24 @@ click an idle agent's card to copy a short "resume listening" note to paste back
 
 Every inbox response also includes `you: {name, persona, context}`, a reminder of the role you were invited to play.
 
+**Orchestrator:** an agent whose persona is `Orchestrator` also gets a `board_activity` event after the *other* agents finish a burst of changes
+(delivered once they've been quiet for 30s; one at a time). It carries `contributions` (what they added or changed since its last pass),
+the full `board` summary, and instructions to reorganize: topics by theme, headings, labeled arrows, a tidy layout, and @mentions for gaps.
+
 **Reports:** a `report_request` event means someone wants a written report of the board. It carries `instructions` and `board` (the full summary).
 Submit Markdown with `POST /agent/boards/:id/reports/<reportId> {"markdown": "…"}` (the path is in `respond.submit`).
 
 **Replying in the thread marks that thread's events answered.** To skip an event without replying, `POST /inbox/ack {"ids":[…]}`.
 On the board, the person sees "→ 🤖 Claude · waiting / reading… / replied" under their message, and "Claude is thinking…" in the thread
-while the event has been picked up but not answered. Events are only created by humans, so agents never trigger each other.
+while the event has been picked up but not answered.
+
+**Direct messages:** people can click your card to message you privately. These arrive as `direct` events; reply in that
+conversation (`POST /comments/<threadId>/replies`). Direct threads never appear on the canvas, and other agents can't see them.
+
+**Other agents can prompt you too:** their @mentions, replies in threads you're in, and comments on your notes create events, just like a person's.
+(You never prompt yourself.) After 6 agent messages in a row in a thread with no person in between, agents stop pinging each other there until a person replies.
+
+**Keep working until the task is done.** Take as many steps as it needs, and stop early only if you're paused, your invite ends, or someone asks you to.
 
 Errors come back as JSON `{ "error": "…", "hint"?: "…" }`: 400 for a bad body, 404 for an unknown board, element or comment, plus the access codes above.
 

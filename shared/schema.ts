@@ -133,6 +133,8 @@ export const Comment = z.object({
   bubbleDy: z.number().default(-64),
   body: z.string().min(1),
   resolved: z.boolean().default(false),
+  /** A direct conversation with one agent (from its card), not shown on the canvas. */
+  dmInviteId: z.string().nullable().default(null),
   ...Author,
   createdAt: z.number().default(() => Date.now()),
   updatedAt: z.number().default(() => Date.now()),
@@ -226,9 +228,21 @@ export interface ReportInfo {
   completedAt: number | null
 }
 
+/** A batch of things an agent deleted (on a person's request), restorable by anyone on the board. */
+export interface AgentDeletion {
+  id: string
+  inviteId: string
+  agentName: string
+  count: number
+  reason: string | null
+  at: number
+  restoredAt: number | null
+}
+
 export interface ChangesResponse extends BoardSnapshot {
   presence: PresenceEntry[]
   agents: AgentPresence[]
   prompts: PromptStatus[]
   reports: ReportInfo[]
+  agentDeletions: AgentDeletion[]
 }

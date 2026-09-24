@@ -1,6 +1,7 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { AgentAvatar } from './Portrait'
 import { useBoard } from '../store/board'
+import { agentActivity } from './agentState'
 
 interface Props {
   value: string
@@ -39,6 +40,7 @@ export const MentionTextarea = forwardRef<HTMLTextAreaElement, Props>(function M
   outerRef,
 ) {
   const agents = useBoard((s) => s.agents)
+  const prompts = useBoard((s) => s.prompts)
   const zoom = useBoard((s) => s.camera.z)
   const ref = useRef<HTMLTextAreaElement>(null)
   useImperativeHandle(outerRef, () => ref.current!)
@@ -51,13 +53,23 @@ export const MentionTextarea = forwardRef<HTMLTextAreaElement, Props>(function M
     ? [
         ...agents
           .filter((a) => a.agentName.toLowerCase().replace(/\s+/g, '').includes(query) || a.agentName.toLowerCase().startsWith(query))
-          .map((a) => ({
-            key: a.id,
-            insert: `@${a.agentName} `,
-            label: a.agentName,
-            hint: a.paused ? 'paused · will get it when resumed' : a.listening ? 'listening' : 'asleep · will get it later',
-            sleeping: !a.listening || a.paused,
-          })),
+          .map((a) => {
+            const act = agentActivity(a, prompts)
+            return {
+              key: a.id,
+              insert: `@${a.agentName} `,
+              label: a.agentName,
+              hint:
+                act === 'paused'
+                  ? 'paused · will get it when resumed'
+                  : act === 'listening'
+                    ? 'listening'
+                    : act === 'working'
+                      ? 'working · will get it next'
+                      : 'asleep · will get it later',
+              sleeping: act === 'paused' || act === 'asleep',
+            }
+          }),
         ...(agents.length > 1 && 'agents'.startsWith(query)
           ? [{ key: '*', insert: '@agents ', label: 'agents', hint: `all ${agents.length} agents`, everyone: true }]
           : []),

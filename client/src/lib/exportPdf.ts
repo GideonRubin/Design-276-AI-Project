@@ -11,7 +11,7 @@ function contentBounds(): Rect | null {
   const s = useBoard.getState()
   const rects: Rect[] = Object.values(s.elements).map(rectOf)
   for (const c of Object.values(s.comments)) {
-    if (c.resolved && !s.showResolved) continue
+    if ((c.resolved && !s.showResolved) || c.dmInviteId) continue
     const a = anchorPoint(c, s.elements)
     if (!a) continue
     rects.push({ x: a.x, y: a.y, w: 1, h: 1 }, { x: a.x + c.bubbleDx, y: a.y + c.bubbleDy, ...BUBBLE })
@@ -79,12 +79,12 @@ export async function exportBoardPdf(): Promise<void> {
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(20)
   pdf.setTextColor('#1B1B1B')
-  pdf.text(s.board.title || 'Untitled wall', PAD / 2, 36)
+  pdf.text(`#${s.board.id}`, PAD / 2, 36)
   pdf.setFont('helvetica', 'normal')
   pdf.setFontSize(11)
   pdf.setTextColor('#8A857A')
   const stamp = new Date().toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-  pdf.text(`DESIGN 276 · #${s.board.id} · ${stamp}`, width - PAD / 2, 36, { align: 'right' })
+  pdf.text(`DESIGN 276 · ${stamp}`, width - PAD / 2, 36, { align: 'right' })
   pdf.addImage(png, 'PNG', 0, header, width, height, undefined, 'FAST')
   pdf.save(`${s.board.id}.pdf`)
 }

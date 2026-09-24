@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import type { AgentPresence } from '../../../shared/schema'
 import { inviteToken, resumePrompt } from './InviteDialog'
 import { seatByName } from '../lib/personas'
+import { agentActivity } from '../lib/agentState'
+import { AgentChat } from './AgentChat'
+import { InviteDialog } from './InviteDialog'
+import { createPortal } from 'react-dom'
 import { api } from '../lib/api'
 import { AgentAvatar, Portrait } from '../lib/Portrait'
 import { useBoard } from '../store/board'
@@ -31,7 +35,21 @@ function useWaitingFor(inviteId: string) {
  * An invited agent. Listening → awake card. Not listening → it dozes (closed eyes, drifting Zzz),
  * and hovering shows a wake-up message the host can copy and paste back into the agent.
  */
-function AgentCard({ agent: a, index, hostName, onRevoke }: { agent: AgentPresence; index: number; hostName: string; onRevoke: () => void }) {
+function AgentCard({
+  agent: a,
+  index,
+  hostName,
+  onRevoke,
+  chatOpen,
+  onToggleChat,
+}: {
+  agent: AgentPresence
+  index: number
+  hostName: string
+  onRevoke: () => void
+  chatOpen: boolean
+  onToggleChat: () => void
+}) {
   const me = useBoard((s) => s.me)!
   const boardId = useBoard((s) => s.board!.id)
   const sid = useBoard((s) => s.sid)
@@ -39,8 +57,11 @@ function AgentCard({ agent: a, index, hostName, onRevoke }: { agent: AgentPresen
   const [copied, setCopied] = useState(false)
   const mine = a.hostPid === me.id
   const token = mine ? inviteToken(a.id) : null
-  const paused = a.paused
-  const asleep = !a.listening && !paused
+  const prompts = useBoard((s) => s.prompts)
+  const activity = agentActivity(a, prompts)
+  const paused = activity === 'paused'
+  const asleep = activity === 'asleep'
+  const working = activity === 'working'
 
   const togglePause = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -64,24 +85,33 @@ function AgentCard({ agent: a, index, hostName, onRevoke }: { agent: AgentPresen
 
   return (
     <div
-      className={`person agent${asleep ? ' asleep' : ''}${paused ? ' paused' : ''}`}
+      className={`person agent${asleep ? ' asleep' : ''}${paused ? ' paused' : ''}${working ? ' working' : ''}${chatOpen ? ' chatting' : ''}`}
+      onClick={onToggleChat}
       style={{ ['--i' as string]: index }}
       title={
         paused
           ? `${a.agentName} is paused by ${a.pausedBy ?? 'someone'}. Messages wait until it's resumed.`
           : asleep
             ? undefined
-            : `${a.agentName}${a.persona ? ` · ${a.persona}` : ''} is listening: @mention it in any comment`
+            : working
+              ? `${a.agentName} is working. It'll pick up new @mentions when it checks in next.`
+              : `${a.agentName}${a.persona ? ` · ${a.persona}` : ''} is listening. Click to message it, or @mention it in a comment`
       }
-      tabIndex={asleep ? 0 : undefined}
-      aria-label={asleep ? `${a.agentName} is asleep` : undefined}
+      tabIndex={0}
+      aria-label={asleep ? `${a.agentName} is asleep. Click to message it` : `Message ${a.agentName}`}
+      onKeyDown={(e) => {
+        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault()
+          onToggleChat()
+        }
+      }}
       // Leaving with the mouse closes the popover even if Copy still has focus.
       onPointerLeave={(e) => {
         const el = e.currentTarget
         if (el.contains(document.activeElement)) (document.activeElement as HTMLElement).blur()
       }}
     >
-      <span className={`live-dot${a.listening ? ' on' : ''}`} />
+      <span className={`live-dot${activity === 'listening' || working ? ' on' : ''}${working ? ' busy' : ''}`} />
       <span className="agent-avatar-wrap">
         <AgentAvatar size={44} sleeping={asleep || paused} />
         {paused && <span className="paused-badge" aria-hidden>❚❚</span>}
@@ -107,7 +137,9 @@ function AgentCard({ agent: a, index, hostName, onRevoke }: { agent: AgentPresen
             ? waiting.length
               ? `asleep · ${waiting.length} waiting`
               : 'asleep'
-            : 'listening'}
+            : working
+              ? 'working…'
+              : 'listening'}
       </span>
       {waiting.length > 0 && (asleep || paused) && <span className="waiting-badge">{waiting.length}</span>}
       <button
@@ -142,7 +174,11 @@ function AgentCard({ agent: a, index, hostName, onRevoke }: { agent: AgentPresen
         </button>
       )}
 
-      {asleep && (
+      {chatOpen && (
+        <AgentChat agent={a} wakeMessage={message} onCopyWake={copy} wakeCopied={copied} onClose={onToggleChat} />
+      )}
+
+      {asleep && !chatOpen && (
         <div className="wake-pop" role="dialog" aria-label={`Wake ${a.agentName}`}>
           <div className="wake-head">
             <span className="wake-title">💤 {a.agentName} is asleep</span>
@@ -192,7 +228,8 @@ export function PresenceCorner() {
   const presence = useBoard((s) => s.presence)
   const agents = useBoard((s) => s.agents)
   const navigate = useNavigate()
-  const [copiedFor, setCopiedFor] = useState<string | null>(null)
+  const [chatFor, setChatFor] = useState<string | null>(null)
+  const [inviting, setInviting] = useState(false)
   if (!me || !boardId) return null
   const others = presence.filter((p) => p.id !== me.id)
   const hostName = (pid: string) => (pid === me.id ? 'you' : (presence.find((p) => p.id === pid)?.name ?? 'someone'))
@@ -204,8 +241,23 @@ export function PresenceCorner() {
 
   return (
     <div className="presence" onPointerDown={(e) => e.stopPropagation()}>
+      <button className="person invite-card" onClick={() => setInviting(true)} title="Invite an AI agent to this board">
+        <span className="invite-plus" aria-hidden>
+          +
+        </span>
+        <span className="person-name">Invite agent</span>
+      </button>
+      {inviting && createPortal(<InviteDialog onClose={() => setInviting(false)} />, document.body)}
       {agents.map((a, i) => (
-        <AgentCard key={a.id} agent={a} index={i} hostName={hostName(a.hostPid)} onRevoke={() => revoke(a.id)} />
+        <AgentCard
+          key={a.id}
+          agent={a}
+          index={i}
+          hostName={hostName(a.hostPid)}
+          onRevoke={() => revoke(a.id)}
+          chatOpen={chatFor === a.id}
+          onToggleChat={() => setChatFor((c) => (c === a.id ? null : a.id))}
+        />
       ))}
       {others.map((p, i) => (
         <div

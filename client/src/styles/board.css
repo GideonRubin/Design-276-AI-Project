@@ -2098,3 +2098,537 @@
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
   pointer-events: none;
 }
+
+/* Busy agent: awake, with a gentle "working" pulse instead of Zzz. */
+.live-dot.busy {
+  background: var(--marigold);
+  animation: live 1.2s ease-out infinite;
+  box-shadow: 0 0 0 0 rgba(255, 200, 61, 0.6);
+}
+.person.agent.working .agent-state {
+  color: #8a6300;
+}
+.person.agent.working .agent-avatar-wrap svg {
+  animation: busy-bob 1.4s ease-in-out infinite;
+}
+@keyframes busy-bob {
+  50% {
+    translate: 0 -2px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .person.agent.working .agent-avatar-wrap svg {
+    animation: none;
+  }
+}
+
+/* The comment's connection dot is a handle: drag it to re-point the comment. */
+.anchor-handle {
+  position: absolute;
+  left: -9px;
+  top: -9px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  cursor: grab;
+  pointer-events: auto;
+  z-index: 1;
+}
+.anchor-handle:hover {
+  box-shadow: 0 0 0 3px rgba(77, 168, 240, 0.35);
+  background: rgba(77, 168, 240, 0.12);
+}
+.anchor-handle:active {
+  cursor: grabbing;
+}
+
+.deletion-toast {
+  top: 124px;
+}
+.deletion-reason {
+  color: var(--ink-3);
+  font-weight: 400;
+  max-width: 280px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- direct chat with an agent (click its card) ---------- */
+
+.person.agent {
+  cursor: pointer;
+}
+.person.agent.chatting {
+  opacity: 1;
+  outline: 2px solid var(--ink);
+  outline-offset: -4px;
+  z-index: 3;
+}
+.agent-chat {
+  position: absolute;
+  right: -6px;
+  bottom: calc(100% + 14px);
+  width: 340px;
+  max-height: min(460px, 70vh);
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 18px 50px -12px rgba(40, 30, 10, 0.4), 0 0 0 1px rgba(40, 30, 10, 0.06);
+  cursor: default;
+  text-align: left;
+  animation: fade-up 220ms var(--spring) both;
+  user-select: text;
+  overflow: hidden;
+}
+.chat-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px 10px 14px;
+  background: var(--paper);
+  border-bottom: 1.5px solid var(--paper-2);
+}
+.chat-head > div {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.chat-state {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.chat-state.listening {
+  color: #0e6b63;
+}
+.chat-state.working {
+  color: #8a6300;
+}
+.chat-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 90px;
+}
+.chat-empty {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+.chat-msg {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.chat-msg.me {
+  justify-content: flex-end;
+}
+.chat-bubble {
+  max-width: 240px;
+  padding: 7px 11px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.chat-msg.them .chat-bubble {
+  background: var(--paper-2);
+  border-bottom-left-radius: 4px;
+}
+.chat-msg.me .chat-bubble {
+  background: var(--comment);
+  border-bottom-right-radius: 4px;
+}
+.chat-status {
+  width: 100%;
+  text-align: right;
+  font-size: 10px;
+  color: var(--ink-3);
+  margin-top: -4px;
+  padding-right: 28px;
+}
+.chat-thinking {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.chat-thinking .dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.chat-thinking .dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  animation: bounce 1.1s ease-in-out infinite;
+}
+.chat-thinking .dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.chat-thinking .dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.chat-wake {
+  margin: 0 12px 8px;
+  justify-content: center;
+}
+.chat-compose {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1.5px solid var(--paper-2);
+}
+.chat-compose textarea {
+  flex: 1;
+  resize: none;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  background: var(--paper);
+}
+.chat-compose textarea:focus {
+  border-color: var(--ink);
+}
+
+/* "Invite agent" lives with the people now: a dashed + card before the agents. */
+.person.invite-card {
+  padding: 10px 12px 8px;
+  border: 1.5px dashed rgba(27, 27, 27, 0.28);
+  background: rgba(255, 255, 255, 0.75);
+  box-shadow: none;
+  color: var(--ink-2);
+}
+.person.invite-card:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: #fff;
+}
+.invite-plus {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  font-weight: 500;
+  background: var(--paper-2);
+  line-height: 1;
+}
+.person.invite-card:hover .invite-plus {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* ---------- toolbar: folded tools ---------- */
+
+.more-wrap {
+  position: relative;
+}
+.tool-more-menu {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  right: -6px;
+  display: flex;
+  gap: 2px;
+  padding: 6px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: var(--shadow-2);
+  animation: fade-up 180ms var(--spring) both;
+}
+
+/* ======================================================================
+   Compact layout (phones, narrow windows). Priorities: the canvas and the
+   main tools (select, hand, note, comment, topic) stay front and center;
+   everything else gets smaller or tucks away, and nothing overlaps.
+   ====================================================================== */
+
+@media (max-width: 760px) {
+  /* Header: brand + title on the left, save dot + menu toggle on the right. */
+  .hdr {
+    top: 10px;
+    padding: 4px 6px 4px 12px;
+    gap: 6px;
+    border-radius: 14px;
+  }
+  .hdr-left {
+    left: 10px;
+    max-width: calc(100vw - 110px);
+  }
+  .hdr-right {
+    right: 10px;
+    padding: 4px;
+  }
+  .brand {
+    font-size: 14px;
+  }
+  .hdr-sep,
+  .id-chip,
+  .save-label {
+    display: none;
+  }
+  .title-input {
+    font-size: 14px;
+    max-width: 38vw;
+    min-width: 0;
+  }
+  .save {
+    min-width: 0;
+    padding: 0 4px 0 6px;
+  }
+  /* The menu drops down as a small vertical list instead of stretching the header. */
+  .hdr-right:not(.collapsed) .hdr-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 6px;
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: var(--shadow-2);
+    max-width: none;
+    opacity: 1;
+  }
+  .hdr-right:not(.collapsed) .hdr-menu .hdr-btn {
+    text-align: left;
+  }
+  .export-menu {
+    right: calc(100% + 8px);
+    top: 0;
+    width: min(280px, calc(100vw - 150px));
+  }
+
+  /* Zoom + undo move up under the header, out of the toolbar's way. */
+  .zoom {
+    left: 10px;
+    top: 62px;
+    bottom: auto;
+    padding: 2px;
+    border-radius: 12px;
+  }
+  .zoom .icon-btn {
+    width: 30px;
+    height: 30px;
+  }
+  .zoom-pct {
+    width: 42px;
+    font-size: 12px;
+  }
+
+  /* Toolbar: main tools, bigger touch targets, no hover tips. */
+  .toolbar {
+    bottom: 10px;
+    padding: 4px;
+    border-radius: 16px;
+    max-width: calc(100vw - 16px);
+  }
+  .tool {
+    width: 40px;
+    height: 40px;
+  }
+  .tool-sep {
+    margin: 0 3px;
+  }
+  .tip {
+    display: none;
+  }
+
+  /* Style bar goes to the top so the bottom stays clear for tools + people. */
+  .stylebar {
+    top: 62px;
+    bottom: auto;
+    left: auto;
+    right: 10px;
+    transform: none;
+    max-width: calc(100vw - 150px);
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+
+  /* People: compact cards stacked above the toolbar at the bottom right. */
+  .presence {
+    right: 8px;
+    bottom: 64px;
+    gap: 6px;
+    flex-wrap: wrap-reverse;
+    justify-content: flex-end;
+    max-width: calc(100vw - 16px);
+  }
+  .person,
+  .person:nth-child(odd),
+  .person:nth-child(even) {
+    padding: 6px 7px 5px;
+    border-radius: 14px;
+    gap: 3px;
+    rotate: none; /* no transforms here, so the popovers below can pin to the screen */
+  }
+  .person:hover,
+  .person.agent.asleep:hover,
+  .person.agent.asleep:focus-visible {
+    transform: none;
+  }
+  .person svg {
+    width: 34px;
+    height: 34px;
+  }
+  .person .agent-play svg,
+  .person .paused-badge svg {
+    width: 10px;
+    height: 10px;
+  }
+  .person-name {
+    font-size: 11px;
+    max-width: 64px;
+  }
+  .agent-state,
+  .agent-persona,
+  .person-name em {
+    display: none;
+  }
+  .invite-plus {
+    width: 34px;
+    height: 34px;
+    font-size: 20px;
+  }
+  .agent-play {
+    opacity: 1; /* no hover on touch: always show pause/play */
+    width: 22px;
+    height: 22px;
+  }
+  .person.agent .revoke {
+    opacity: 1;
+  }
+
+  /* Popovers from the people corner become full-width sheets above the toolbar. */
+  .agent-chat,
+  .wake-pop {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    bottom: 150px;
+    width: auto;
+  }
+  .wake-pop::after {
+    display: none;
+  }
+
+  /* Thread panel becomes a bottom sheet. */
+  .thread {
+    top: auto;
+    left: 8px;
+    right: 8px;
+    bottom: 64px;
+    width: auto;
+    height: min(62vh, 520px);
+    border-radius: 18px;
+  }
+
+  /* Notices wrap instead of running off screen. */
+  .report-toast {
+    top: 62px;
+    max-width: calc(100vw - 20px);
+    flex-wrap: wrap;
+    justify-content: center;
+    border-radius: 16px;
+  }
+  .deletion-toast {
+    top: 108px;
+  }
+
+  .modal {
+    padding: 20px 16px;
+    max-height: calc(100vh - 24px);
+  }
+  .empty-title {
+    font-size: 30px;
+  }
+  .empty-sub {
+    font-size: 13px;
+    padding: 0 16px;
+  }
+}
+
+@media (max-width: 560px) {
+  .seats {
+    grid-template-columns: 1fr;
+  }
+  .modal-head h2 {
+    font-size: 22px;
+  }
+  .invite-actions {
+    flex-wrap: wrap;
+  }
+}
+
+/* The toolbar (and its "⋯" pop-up) sits above the people corner. */
+.toolbar {
+  z-index: 11;
+}
+
+/* ---------- crowded bottom row (measured, see useCrowdedLayout) ----------
+   Zoom goes under the header, people lift above the toolbar, the style bar moves to the top. */
+body.board-crowded .zoom {
+  top: 76px;
+  bottom: auto;
+}
+body.board-crowded .presence {
+  bottom: 84px;
+}
+body.board-crowded .stylebar {
+  top: 76px;
+  bottom: auto;
+  left: auto;
+  right: 16px;
+  transform: none;
+  max-width: calc(100vw - 320px);
+  overflow-x: auto;
+}
+body.board-crowded .thread {
+  bottom: calc(var(--presence-h, 110px) + 100px);
+}
+@media (max-width: 760px) {
+  body.board-crowded .zoom,
+  body.board-crowded .stylebar {
+    top: 62px;
+  }
+  body.board-crowded .presence {
+    bottom: 64px;
+  }
+  body.board-crowded .thread {
+    bottom: 64px;
+  }
+}
+
+/* The board ID is the board's name in the header. */
+.id-chip.board-id {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+  padding: 6px 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+@media (max-width: 760px) {
+  .id-chip.board-id {
+    display: inline-block;
+    font-size: 13px;
+    max-width: 42vw;
+  }
+}

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AgentPresence, Board, BoardSnapshot, Comment, Element, PresenceEntry, PromptStatus, Reply, ReportInfo } from '../../../shared/schema'
+import type { AgentDeletion, AgentPresence, Board, BoardSnapshot, Comment, Element, PresenceEntry, PromptStatus, Reply, ReportInfo } from '../../../shared/schema'
 import { reflowArrows } from '../../../shared/connectors'
 import type { Profile } from '../lib/profile'
 
@@ -50,6 +50,10 @@ interface State {
   /** Which human messages prompted which agents, and whether they've answered. */
   prompts: PromptStatus[]
   reports: ReportInfo[]
+  /** True once the first update check has come back (lists like reports are only complete from then on). */
+  synced: boolean
+  /** Recent deletions agents made (on request), so people can restore them. */
+  agentDeletions: AgentDeletion[]
   /** Elements that just moved because of someone else (animate them into place). */
   glideIds: Set<string>
   /** This tab's session id (agent invites are bound to it). */
@@ -85,6 +89,8 @@ const initial = (): State => ({
   agents: [],
   prompts: [],
   reports: [],
+  synced: false,
+  agentDeletions: [],
   glideIds: new Set(),
   sid: '',
   camera: { x: 0, y: 0, z: 1 },

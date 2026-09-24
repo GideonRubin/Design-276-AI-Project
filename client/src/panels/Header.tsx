@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
-import { actions, useBoard } from '../store/board'
-import { InviteDialog } from './InviteDialog'
+import { useBoard } from '../store/board'
 import { ReportDialog } from './ReportDialog'
 import { exportBoardPdf } from '../lib/exportPdf'
 
@@ -14,17 +13,24 @@ export function Header({ onImported }: { onImported: () => void }) {
   const saveState = useBoard((s) => s.saveState)
   const [copied, setCopied] = useState(false)
   const [importMsg, setImportMsg] = useState<string | null>(null)
-  const [inviting, setInviting] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [pdfBusy, setPdfBusy] = useState(false)
   const [reportOpen, setReportOpen] = useState<{ id: string | null } | null>(null)
   const agentsCount = useBoard((s) => s.agents.length)
   const reports = useBoard((s) => s.reports)
+  const synced = useBoard((s) => s.synced)
   const [readyNotice, setReadyNotice] = useState<{ id: string; agentName: string } | null>(null)
+  const agentDeletions = useBoard((s) => s.agentDeletions)
+  const sid = useBoard((s) => s.sid)
+  const [dismissedDeletions, setDismissedDeletions] = useState<Set<string>>(() => new Set())
+  const [restoring, setRestoring] = useState<string | null>(null)
+  // The newest agent deletion from the last few minutes that nobody has restored or dismissed.
+  const deletion = agentDeletions.find((d) => !d.restoredAt && !dismissedDeletions.has(d.id) && Date.now() - d.at < 10 * 60_000) ?? null
   const seenReady = useRef<Set<string> | null>(null)
 
   // Tell everyone on the board when a report finishes (reports already done at load don't count).
   useEffect(() => {
+    if (!synced) return // wait for the real list, or every old report would look new
     const ready = reports.filter((r) => r.status === 'ready')
     if (!seenReady.current) {
       seenReady.current = new Set(ready.map((r) => r.id))
@@ -35,7 +41,7 @@ export function Header({ onImported }: { onImported: () => void }) {
       seenReady.current.add(r.id)
       setReadyNotice({ id: r.id, agentName: r.agentName })
     }
-  }, [reports])
+  }, [reports, synced])
 
   // Close the export menu on outside click.
   useEffect(() => {
@@ -44,7 +50,10 @@ export function Header({ onImported }: { onImported: () => void }) {
     window.addEventListener('pointerdown', close)
     return () => window.removeEventListener('pointerdown', close)
   }, [exportOpen])
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === '1')
+  const [collapsed, setCollapsed] = useState(() => {
+    const saved = localStorage.getItem(COLLAPSE_KEY)
+    return saved === null ? window.matchMedia('(max-width: 760px)').matches : saved === '1'
+  })
   const fileRef = useRef<HTMLInputElement>(null)
   if (!board) return null
 
@@ -65,7 +74,7 @@ export function Header({ onImported }: { onImported: () => void }) {
     if (!f) return
     try {
       const json = JSON.parse(await f.text())
-      if (!confirm(`Replace everything on “${board.title}” with the contents of ${f.name}?`)) return
+      if (!confirm(`Replace everything on #${board.id} with the contents of ${f.name}?`)) return
       await api.importFile(board.id, json)
       setImportMsg('Imported ✓')
       onImported()
@@ -84,20 +93,9 @@ export function Header({ onImported }: { onImported: () => void }) {
           DESIGN <span>276</span>
         </Link>
         <span className="hdr-sep" />
-        <input
-          className="title-input"
-          value={board.title}
-          aria-label="Board title"
-          maxLength={120}
-          onChange={(e) => actions.setTitle(e.target.value)}
-          onKeyDown={(e) => {
-            e.stopPropagation()
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-          }}
-          size={Math.max(8, board.title.length)}
-        />
-        <button className="id-chip" onClick={copy} title="Copy board ID">
-          #{board.id} <span>{copied ? '✓' : '⧉'}</span>
+        {/* Boards are known by their ID; click to copy it and share the board. */}
+        <button className="id-chip board-id" onClick={copy} title="Copy board ID">
+          #{board.id} <span>{copied ? 'copied ✓' : '⧉'}</span>
         </button>
       </header>
 
@@ -108,9 +106,6 @@ export function Header({ onImported }: { onImported: () => void }) {
         </span>
         <div className="hdr-menu" aria-hidden={collapsed}>
           {importMsg && <span className="import-msg">{importMsg}</span>}
-          <button className="hdr-btn invite" onClick={() => setInviting(true)} title="Invite an AI agent to this board" tabIndex={collapsed ? -1 : 0}>
-            🤖 Invite agent
-          </button>
           <span className="export-wrap" onPointerDown={(e) => e.stopPropagation()}>
             <button className="hdr-btn" aria-expanded={exportOpen} onClick={() => setExportOpen((o) => !o)} tabIndex={collapsed ? -1 : 0}>
               ↓ Export
@@ -148,7 +143,7 @@ export function Header({ onImported }: { onImported: () => void }) {
                   }}
                 >
                   <b>📄 Report by an agent…</b>
-                  <span>{agentsCount ? 'Main points & relationships for each topic' : 'Needs a connected agent'}</span>
+                  <span>{agentsCount ? 'A short, plain-language summary of each topic' : 'Needs a connected agent'}</span>
                 </button>
                 <a role="menuitem" className="export-item" href={api.exportUrl(board.id)} download={`${board.id}.board.json`} onClick={() => setExportOpen(false)}>
                   <b>{'{ }'} Board file</b>
@@ -170,7 +165,6 @@ export function Header({ onImported }: { onImported: () => void }) {
       </header>
 
       {/* Portal: the header's backdrop-filter would otherwise trap the fixed-position modal. */}
-      {inviting && createPortal(<InviteDialog onClose={() => setInviting(false)} />, document.body)}
       {reportOpen &&
         createPortal(
           <ReportDialog
@@ -180,6 +174,29 @@ export function Header({ onImported }: { onImported: () => void }) {
               setReadyNotice(null) // it finished while you were watching: no need to announce it
             }}
           />,
+          document.body,
+        )}
+      {deletion &&
+        createPortal(
+          <div className="report-toast deletion-toast" role="status">
+            🤖 {deletion.agentName} removed {deletion.count} {deletion.count === 1 ? 'item' : 'items'}
+            {deletion.reason && <span className="deletion-reason">“{deletion.reason}”</span>}
+            <button
+              className="btn small"
+              disabled={restoring === deletion.id}
+              onClick={async () => {
+                setRestoring(deletion.id)
+                await api.restoreDeletion(board.id, deletion.id, sid).catch(() => {})
+                setRestoring(null)
+                setDismissedDeletions((s) => new Set([...s, deletion.id]))
+              }}
+            >
+              {restoring === deletion.id ? 'Restoring…' : '↺ Restore'}
+            </button>
+            <button className="icon-btn" aria-label="Dismiss" onClick={() => setDismissedDeletions((s) => new Set([...s, deletion.id]))}>
+              ✕
+            </button>
+          </div>,
           document.body,
         )}
       {readyNotice &&

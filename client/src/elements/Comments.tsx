@@ -91,6 +91,8 @@ const Bubble = memo(function Bubble({ c, a, replyCount, open, collapsed, selecte
         {base && <path d={tailPath(base.x, base.y, a.x, a.y)} className={`tail-path${c.resolved ? ' resolved' : ''}`} />}
         <circle cx={a.x} cy={a.y} r={4} className="anchor-dot" />
       </svg>
+      {/* Drag the dot to re-attach the comment somewhere else (another note, or a free spot). */}
+      <span className="anchor-handle" data-anchor={c.id} style={{ transform: `translate(${a.x}px, ${a.y}px)` }} title="Drag to move what this comment points at" />
       <div
         ref={ref}
         className={`bubble${open ? ' open' : ''}${c.resolved ? ' resolved' : ''}${selected ? ' selected' : ''}${c.authorType === 'agent' ? ' by-agent' : ''}`}
@@ -136,6 +138,7 @@ function DraftBubble({ anchor }: { anchor: Comment['anchor'] }) {
       bubbleDy: -64,
       body: text,
       resolved: false,
+      dmInviteId: null,
       authorId: me.id,
       authorName: me.name,
       authorType: 'human',
@@ -210,6 +213,7 @@ export function CommentLayer() {
   return (
     <div className="comment-layer">
       {Object.values(comments)
+        .filter((c) => !c.dmInviteId) // direct conversations live in the agent's chat bubble, not on the canvas
         .sort((a, b) => a.createdAt - b.createdAt)
         .map((c) => {
           const a = anchorPoint(c, elements)

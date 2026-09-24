@@ -109,14 +109,29 @@ Everything must run on Vercel's free tier.
   - The thread composer has one-click **Ask @Agent** chips, and mentions are highlighted.
   - **@ autocomplete:** typing `@` in any comment or reply suggests agents (listening or asleep) and `@agents`. Navigate with ↑/↓, pick with Enter or Tab.
     Mentions match the longest name, so `@Claude Reporter` doesn't also ping `Claude`.
-  - **Listening state:** each agent card shows *listening* (an inbox request is open, or one returned within 15s) or *not listening*.
+  - **Agent states:** *paused* (someone paused it), *listening* (an inbox request is open, or one returned within 15s),
+    *working* (it made an API call in the last 90s, or picked up a message in the last 10 min that it hasn't answered yet), and *asleep* (none of those).
+    Only asleep agents get the Zzz and the wake-up popover. The logic lives in [`client/src/lib/agentState.ts`](client/src/lib/agentState.ts).
     LLM agents tend to stop polling after their turn ends, which looked like "mentions don't work"; now it's visible, and messages stay queued.
     The invite brief includes a blocking listen command (it exits when there's work, so background-capable agents get woken).
     Agents that aren't listening **fall asleep** in the corner: closed eyes, drifting Zzz, and a badge counting waiting messages.
     Hovering one shows what's waiting and a **wake-up message** to copy and paste back into the agent.
     The message lists the waiting messages and includes the listen command. This tab keeps its own invite tokens in `sessionStorage` for that.
     Other people see who can wake it.
-  - Only human actions create events, so agents can't loop on each other. Code: [`server/src/events.ts`](server/src/events.ts).
+  - **Agents respond to each other too:** another agent's @mention, reply in a shared thread, or comment on your note creates an event, just like a person's (an agent never prompts itself).
+    Loop guard: after 6 agent messages in a row in a thread with no person in between, agents stop pinging each other there, until a person replies. Code: [`server/src/events.ts`](server/src/events.ts).
+  - **Deleting on request:** agents can `POST /delete` (elements and threads) only for 30 minutes after a person asks them to delete, clean up, remove or clear. The Orchestrator is the exception and may always delete.
+    Every agent deletion is logged with the rows as they were. Everyone sees "🤖 Designer removed N items · Restore", and one click restores it. Code: [`server/src/deletions.ts`](server/src/deletions.ts).
+  - **Direct chat:** click an agent's card to open a chat bubble and prompt it privately (a comment thread with `dmInviteId`, never drawn on the canvas).
+    Replies, "reading… / replied" status, and a wake-up button (if it's asleep) all appear in the bubble.
+  - **Work until done:** the brief and every prompt tell agents to see a task through (notes, topics, arrows, comments, replies) and stop only if they're paused, their invite ends, or someone tells them to stop.
+    The brief also pushes structure: a hierarchy of topics, headings and notes, arrows for relationships, and new comment threads.
+- ✅ **Spatial awareness for agents** ([`server/src/layout.ts`](server/src/layout.ts)):
+  - The summary reads layouts the way a person does. A long free line in a topic is a **divider**: its question (text just above it),
+    its two sides, and their labels ("yes" / "no") appear under `structure[]`, and every item gets a `where` (topic, side, side label, question, heading above it).
+  - `problems` flags overlapping items and topics.
+  - Placement without pixel math: notes and text take `topicId` (free spot inside, the topic grows if full) or `nearElementId` (next to it, same topic, same side, never overlapping).
+  - `POST /arrange {topicId}` packs a topic into a tidy grid (question on top, sides kept apart, topic resized). `POST /arrange {}` spaces overlapping topics apart.
 - ✅ **Topics** (stored as "sections"):
   - A topic is a titled, tinted area (`role: "section"` on a rect). Everything inside it belongs to that topic.
   - Draw one with the Topic tool (B) and type its title, or select items and press **▢ Topic**.
@@ -146,6 +161,10 @@ Everything must run on Vercel's free tier.
     ✏️ **Designer** turns a problem into simple ideas to try.
     🧐 **Skeptic** kindly pokes holes and says what would change its mind.
     🧪 **Prototyper** suggests the smallest real test.
+    🎼 **Orchestrator** reorganizes the board around the other agents' ideas. After other agents finish a burst of work (30s quiet), it gets one
+    `board_activity` event listing what they added since its last pass. Then it groups notes into topics, adds headings, draws labeled arrows between related or conflicting ideas,
+    tidies the layout, and @mentions agents about gaps. Its own changes don't nudge it. Unlike other agents, it **may delete without being asked** (duplicates, strays, clutter).
+    Each deletion still shows the "removed N items · Restore" notice. Code: `nudgeOrchestrators` in [`server/src/events.ts`](server/src/events.ts).
     The agent joins as `@Skeptic` (`@Skeptic 2` if one is already there). The personality, plus any extra context, goes into the brief.
     It's stored on the invite and returned to the agent as `you` on every `/session` and `/inbox` call. Edit the personas in [`client/src/lib/personas.ts`](client/src/lib/personas.ts).
   - The database stores only token hashes. Code: [`server/src/invites.ts`](server/src/invites.ts).
@@ -166,7 +185,7 @@ Everything must run on Vercel's free tier.
 - **Participant:** id, name, color, sketch (strokes in a 0–1 square), lastSeenAt, lastBoardId.
 
 ### Board features
-- ✅ **Tools:** Select V · Hand H or space · then **Sticky note N · Comment C · Topic B** · then Rectangle R · Arrow A · Line L · Text T.
+- ✅ **Tools:** Select V · Hand H or space · then **Topic B · Sticky note N · Comment C** · then Rectangle R · Arrow A · Line L · Text T.
   Ellipse, diamond and pen were removed from the toolbar; existing ones still render.
   Double-click a tool to lock it.
 - ✅ **Editing:**
@@ -187,6 +206,7 @@ Everything must run on Vercel's free tier.
   - The side thread panel has replies, a resolve/reopen button, and lets you delete your own messages.
   - Resolved threads **disappear** from the canvas entirely, and resolving closes the panel. They stay in the data and in exports.
   - The tail leaves the bubble from its **nearest edge**, measured live, and bubbles don't animate on hover.
+  - **Drag the connection dot** to re-point a comment: drop it on a note to pin it there, or anywhere for a free point. The bubble stays put.
   - **Any comment can be selected** (click, shift-click, or box-select) and deleted with ⌫ or the style bar's Delete. Undo restores it along with its replies.
   - Resolved threads **select like elements**: click, shift-click or drag-select, with the same blue ring.
     The style bar then offers **Reopen / Delete**, and ⌫ works too. A resolved thread's panel has 🗑 for anyone. Deleting can be undone, replies included.
@@ -202,11 +222,18 @@ Everything must run on Vercel's free tier.
 - ✅ **Export menu:**
   - **Board as PDF:** the whole board, not just the visible part, rendered in the browser with html-to-image and jsPDF (both lazy-loaded), with a title header.
   - **Report by an agent:** pick a connected agent. It gets a `report_request` inbox event with the full summary and instructions
-    (overview, then per topic: main points, relationships, open questions; then cross-topic themes and next steps).
+    It asks for a short summary in plain, natural language: a brief overview, a few sentences per topic, then next steps, with no field labels, no talk about layout, and no "who suggested what". Author names are stripped from the data the agent gets.
     It submits Markdown to `POST /agent/boards/:id/reports/:rid`. The app renders it safely, with Save as PDF, ↓ Markdown and Copy, and a notice tells everyone when it's ready.
   - **Board file** (.board.json).
-- ✅ **Header:** "DESIGN 276" brand, editable title, copyable board ID.
-  The top-right menu (save status, Invite agent, Export, Import) **collapses** with the chevron; the choice is remembered.
+- ✅ **Header:** "DESIGN 276" brand and the board's ID (click to copy). Boards have **no names**, just IDs, which are also used in the tab title, the PDF, briefs and reports.
+  The top-right menu (save status, Export, Import) **collapses** with the chevron; the choice is remembered.
+  **Invite agent** is a "+" card in the people corner (bottom right), next to the agents it creates.
+- ✅ **Responsive** (compact layout at 760px and below):
+  - The toolbar keeps the main tools (Select, Hand, Topic, Sticky note, Comment). Rectangle, Arrow, Line and Text fold into **⋯**, which shows the active folded tool.
+  - The header menu becomes a dropdown (collapsed by default on small screens), the title shrinks, and the board ID hides.
+  - Zoom and undo move under the header. The style bar moves to the top, so the bottom holds just the tools and people.
+  - People cards go compact above the toolbar. The chat, wake-up and thread panels become full-width sheets. The invite dialog stacks its persona cards.
+  - **Crowded bottom row (any width):** the board measures whether zoom, tools and people fit side by side. If not, zoom moves under the header and people lift above the toolbar ([`client/src/lib/useCrowdedLayout.ts`](client/src/lib/useCrowdedLayout.ts)).
 - ✅ **Canvas background:** very subtle warm dot grid that scales with zoom.
 
 ### Visual language

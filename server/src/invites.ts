@@ -75,7 +75,7 @@ export async function createInvite(
 }
 
 /** The person behind a tab that's live on this board, or null if it isn't connected. */
-async function liveTabPerson(boardId: string, sid: string): Promise<{ name: string } | null> {
+export async function liveTabPerson(boardId: string, sid: string): Promise<{ name: string } | null> {
   const s = await getDb().execute({
     sql: `SELECT p.data FROM host_sessions s LEFT JOIN participants p ON p.id = s.pid
           WHERE s.id = ? AND s.board_id = ? AND s.last_seen_at > ?`,

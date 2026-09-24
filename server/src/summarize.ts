@@ -1,5 +1,6 @@
 import type { BoardSnapshot, Comment, Element } from '../../shared/schema.js'
 import { isSection, sectionContents } from '../../shared/sections.js'
+import { describePlacement, describeStructure, layoutProblems } from './layout.js'
 import { NOTE_COLORS } from '../../shared/schema.js'
 
 export interface Box {
@@ -49,10 +50,10 @@ export function commentAnchorPoint(c: Comment, byId: Map<string, Element>) {
 }
 
 /** An LLM-friendly view of the board: plain text first, geometry second. */
-export function summarize(snap: BoardSnapshot) {
+export function summarize(snap: BoardSnapshot, opts: { directFor?: string } = {}) {
   const elements = snap.elements.filter((e) => !e.deleted)
   const byId = new Map(elements.map((e) => [e.id, e]))
-  const comments = snap.comments.filter((c) => !c.deleted)
+  const comments = snap.comments.filter((c) => !c.deleted && (!c.dmInviteId || opts.directFor === '*' || opts.directFor === c.dmInviteId))
   const replies = snap.replies.filter((r) => !r.deleted)
 
   const nearby = (e: Element) =>
@@ -75,6 +76,7 @@ export function summarize(snap: BoardSnapshot) {
       return {
         id: c.id,
         resolved: c.resolved,
+        ...(c.dmInviteId ? { direct: true } : {}),
         anchoredTo,
         comment: { body: c.body, author: { name: c.authorName, type: c.authorType }, createdAt: new Date(c.createdAt).toISOString() },
         replies: replies
@@ -91,16 +93,19 @@ export function summarize(snap: BoardSnapshot) {
 
   const sections = elements.filter(isSection)
   const inSection = (e: Element) => sections.filter((s) => sectionContents(s, [e]).length).map((s) => s.id)
+  // Spatial reading of the board: which topic / side / heading each item sits in.
+  const where = describePlacement(elements)
   const described = elements
     .filter((e) => !isSection(e))
     .sort((a, b) => a.y - b.y || a.x - b.x)
     .map((e) => {
       const within = inSection(e)
-      return { ...describeElement(e), nearby: nearby(e), ...(within.length ? { topic: within[0] } : {}) }
+      const w = where.get(e.id)
+      return { ...describeElement(e), nearby: nearby(e), ...(within.length ? { topic: within[0] } : {}), ...(w ? { where: w } : {}) }
     })
 
   return {
-    board: { id: snap.board.id, title: snap.board.title, version: snap.board.version },
+    board: { id: snap.board.id, version: snap.board.version },
     counts: {
       notes: elements.filter((e) => e.kind === 'note').length,
       text: elements.filter((e) => e.kind === 'text').length,
@@ -121,6 +126,10 @@ export function summarize(snap: BoardSnapshot) {
     text: described.filter((e) => e.kind === 'text'),
     shapes: described.filter((e) => e.kind === 'shape'),
     threads,
+    /** Structures people drew, read the way a person would (e.g. a question with a line splitting "yes" and "no"). */
+    structure: describeStructure(elements),
+    /** Layout problems to fix (overlaps). */
+    problems: layoutProblems(elements),
     coordinateSystem:
       'Canvas pixels; x grows right, y grows down; x/y is an element\'s top-left. Items are listed top-to-bottom, left-to-right. `topic` on an item = the topic it belongs to.',
   }

@@ -6,8 +6,10 @@ import { BOARD_ID_RE, friendlyBoardId, normalizeBoardId } from '../../../shared/
 import { createBoard, getBoard, loadSince, NotFound, stmt, touchAndListPresence, writeBoard } from '../db.js'
 import type { InStatement } from '@libsql/client'
 import { createInvite, heartbeat, leaveSession, listAgents, revokeInvite, setPaused } from '../invites.js'
-import { queueForHumanActivity, recentEventStatus } from '../events.js'
+import { queueForActivity, recentEventStatus } from '../events.js'
 import { getReport, listReports, requestReport } from '../reports.js'
+import { recentDeletions, restoreDeletion } from '../deletions.js'
+import { liveTabPerson } from '../invites.js'
 import { getDb } from '../db.js'
 
 export const boards = new Hono()
@@ -48,14 +50,15 @@ boards.get('/:id/changes', async (c) => {
   const run = c.req.query('run') ?? sid ?? ''
   const visible = c.req.query('vis') !== '0'
   if (sid && pid) await heartbeat(sid, pid, id, run, visible)
-  const [snap, presence, agents, prompts, reports] = await Promise.all([
+  const [snap, presence, agents, prompts, reports, agentDeletions] = await Promise.all([
     snapshot(id, since),
     touchAndListPresence(id, pid),
     listAgents(id),
     recentEventStatus(id),
     listReports(id),
+    recentDeletions(id),
   ])
-  const res: ChangesResponse = { ...snap, presence, agents, prompts, reports }
+  const res: ChangesResponse = { ...snap, presence, agents, prompts, reports, agentDeletions }
   return c.json(res)
 })
 
@@ -102,6 +105,16 @@ boards.post('/:id/invites/:inviteId/pause', async (c) => {
   const ok = await setPaused(c.req.param('id'), c.req.param('inviteId'), body.sid, body.paused)
   if (!ok) return c.json({ error: 'No such active agent, or your board tab is not connected.' }, 404)
   return c.json({ ok: true, paused: body.paused })
+})
+
+// Anyone with the board open can undo an agent's deletion.
+boards.post('/:id/agent-deletions/:did/restore', async (c) => {
+  const id = c.req.param('id')
+  const { sid } = z.object({ sid: z.string().min(8) }).parse(await c.req.json())
+  if (!(await liveTabPerson(id, sid))) return c.json({ error: 'Your board tab is not connected.' }, 409)
+  const ok = await restoreDeletion(id, c.req.param('did'))
+  if (!ok) return c.json({ error: 'Nothing to restore (already restored?).' }, 404)
+  return c.json({ ok: true })
 })
 
 boards.delete('/:id/invites/:inviteId', async (c) => {
@@ -162,7 +175,7 @@ async function applyOps(c: any) {
     replies: upsertedReplies.filter((r) => !oldReplies.has(r.id)),
   }
   if (created.comments.length || created.replies.length) {
-    await queueForHumanActivity(id, created, await snapshot(id))
+    await queueForActivity(id, created, await snapshot(id))
   }
   return c.json({ version })
 }

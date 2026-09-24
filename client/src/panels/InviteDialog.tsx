@@ -51,14 +51,13 @@ Then run the command again, and keep doing that until I say we're done.`
 export function agentPrompt(opts: {
   origin: string
   boardId: string
-  title: string
   agentName: string
   hostName: string
   token: string
   persona?: string
   context?: string
 }) {
-  const { origin, boardId, title, agentName, hostName, token } = opts
+  const { origin, boardId, agentName, hostName, token } = opts
   const persona = opts.persona?.trim()
   const context = opts.context?.trim()
   const role =
@@ -72,13 +71,16 @@ ${persona ? `- You are "${persona}". Stay in this role in everything you add or 
   const b = `${api}/agent/boards/${boardId}`
   return `You're invited to collaborate on a DESIGN 276 whiteboard as "${agentName}".
 
-Board: "${title}" (id: ${boardId}), hosted by ${hostName}.
+Board: ${boardId}, hosted by ${hostName}.
 API base: ${api}
 Auth: send the header  Authorization: Bearer ${token}
 ${role}
 Rules
 - You can read the whole board; add sticky notes, text titles, topics and arrows; move things to reorganize; start comment threads, reply, and resolve threads.
-- You cannot edit anyone's text or delete anything. Your name is your persona, fixed by this invite.
+- You can delete things only when a person asks you to (e.g. "delete…", "clean up…", "remove…"). That request unlocks deleting for 30 minutes.
+  (The Orchestrator may delete without asking, to keep the board clean.)
+  People can restore anything you delete, so when asked to clean up, do it properly: remove duplicates, clutter and empty items.
+  You cannot edit anyone's text. Your name is your persona, fixed by this invite.
 - Access only works while ${hostName} has the board open. HTTP 423 = host stepped away, or someone paused you (wait and retry); 401 = invite ended.
 - People can pause you from the board. While paused, don't try to change anything. Keep calling /inbox?wait=25: it says "paused" until you're resumed, then delivers what queued up.
 
@@ -87,26 +89,56 @@ Rules
   GET  ${b}/summary                  → notes, text, shapes, topics (+ what's in each), arrows, comment threads
 
 2. Contribute (JSON bodies)
-  POST  ${b}/notes                   {"text": "...", "color": "yellow|pink|mint|lilac|sky", "nearElementId": "<id>"}
+  POST  ${b}/notes                   {"text": "...", "color": "yellow|pink|mint|lilac|sky", "topicId": "<id>" | "nearElementId": "<id>"}
   POST  ${b}/text                    {"text": "Insights", "size": "title|heading|label", "aboveElementId": "<id>"}   (or "x"/"y")
   POST  ${b}/topics                  {"title": "Pain points", "elementIds": ["<id>", ...], "color": "gray|yellow|pink|mint|lilac|sky"}
   POST  ${b}/arrows                  {"from": {"elementId": "<id>"}, "to": {"elementId": "<id>"}, "label": "optional"}
+  POST  ${b}/arrange                 {"topicId": "<id>"}  tidies one topic   ·   {}  spaces topics apart
   POST  ${b}/move                    {"moves": [{"id": "<id>", "x": 0, "y": 0}, {"id": "<id>", "dx": 40, "dy": 0}]}
   POST  ${b}/comments                {"body": "...", "anchor": {"elementId": "<id>"}}   or  {"anchor": {"x": 0, "y": 0}}
   POST  ${b}/comments/<commentId>/replies   {"body": "..."}
   PATCH ${b}/comments/<commentId>    {"resolved": true}
+  POST  ${b}/delete                  {"ids": ["<id>", ...], "reason": "duplicates"}   (only after a person asks you to delete / clean up)
 
-  How to structure a board well:
-  - Sticky notes are for ideas, quotes and observations, not for labels.
-  - Name things with text: a "title" for the board or a big area, a "heading" over a cluster, a "label" for small captions.
-  - A topic is a titled area; everything inside it belongs to that topic. People draw them too.
-  - Group related notes: first move them into a tidy cluster (~40px gaps, one /move call), then make a topic around them
-    with a short title. A topic sizes itself to fit the elementIds you give it and sits behind everything.
-  - Moving a topic carries everything inside it. Arrows attached to elements follow them when moved.
+  Read the board the way a person does, and respect what they drew:
+  - Every item in the summary has a "where": its topic, its side of any dividing line, the label for that side, the question
+    that side answers, and the heading it sits under.
+  - "structure" describes layouts people made. Example: a question at the top, a line down the middle, "yes" on the left and
+    "no" on the right. That's a two-sided answer: put each new idea on the side it supports, next to that side's label
+    (nearElementId = the label's id), and never mix the sides.
+  - Match what's there: if people made columns, lists or pairs, add to them the same way.
+
+  Place things without pixel math:
+  - New notes and text: give "topicId" (lands in free space inside the topic, which grows if needed) or "nearElementId"
+    (lands next to it, in the same topic and on the same side, not on top of anything). Only use x/y if you must.
+  - After adding several items, or whenever "problems" lists overlaps, call POST /arrange {"topicId"} to tidy that topic
+    (labels on top, a neat grid, sides kept apart), or POST /arrange {} to space overlapping topics apart.
+  - Never stack notes on top of each other, and don't let topics overlap. Never put a topic across someone's dividing line
+    ("problems.straddlingDivider"): if one does, move its notes onto the side each belongs to.
+
+  Build the board with structure, not just a pile of notes:
+  - Hierarchy: topics (big titled areas) > headings (text over a cluster) > sticky notes (one idea each).
+    Put related notes inside a topic; give clusters a heading. A good board reads top-down at a glance.
+  - Sticky notes hold ideas, quotes, observations and questions: short, one thought per note. Add plenty.
+  - Relationships: draw arrows between notes or topics that cause, lead to, contradict or depend on each other,
+    and label them ("causes", "blocks", "so…") when it helps.
+  - Conversation: start new comment threads on specific notes to question, build on or connect ideas.
+  - Group related notes by making a topic around them (POST /topics with their ids), then POST /arrange {"topicId"} to tidy it.
+    Topics sit behind everything and carry their contents when moved.
   - Positions are canvas pixels (x right, y down); x/y is an element's top-left.
 
-3. Stay in the conversation (important: don't stop after your first contribution)
-  People will @mention you ("@${agentName}") or reply in your threads. Wait for them with this command.
+  Other agents may be on this board too. Read what they wrote (the summary shows each author) and respond to it:
+  reply in their threads, comment on their notes, build on or challenge their ideas, and connect their notes to yours
+  with arrows. @mention an agent by name to ask it something directly. Don't just repeat what's already there.
+
+3. Keep working until the task is done
+  When you're given a task, see it through: take as many steps as it needs (read, add notes, build topics, draw
+  relationships, comment, reply) until it's complete. Don't stop after your first contribution. The only reasons to
+  stop early are: you're paused, your invite ends (401), or someone tells you to stop. Then report what you did in the thread.
+
+4. Stay in the conversation
+  People and other agents will @mention you ("@${agentName}") or reply in your threads, and people can message you
+  directly by clicking your card (a "direct" event: reply in that conversation). Wait for them with this command.
   It blocks until something arrives, then prints the events and exits. If you can run commands in the
   background, do that; you'll be woken when it finishes:
 
@@ -116,7 +148,7 @@ Rules
   that marks it answered. To skip one: POST ${b}/inbox/ack {"ids": [<eventId>]}.
   A "report_request" event means someone wants a written report of the board: follow its "instructions",
   use its "board" summary, and POST {"markdown": "..."} to its "respond.submit.path".
-  Then run the command again. Keep this loop going until ${hostName} says you're done. The board shows
+  Then run the command again. Keep this loop going until ${hostName} says you're done: after finishing a task, go back to listening. The board shows
   people whether you're listening, and messages sent while you're not are queued for you.
 
 Full reference: ${api}/docs
@@ -169,7 +201,6 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
         agentPrompt({
           origin: window.location.origin,
           boardId: board.id,
-          title: board.title,
           agentName: name,
           hostName: me.name,
           token,

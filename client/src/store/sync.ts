@@ -115,7 +115,7 @@ export function startSync(boardId: string): () => void {
       const s = useBoard.getState()
       // A save happened mid-request: this response may predate it, so drop it and ask again.
       if (flushSeq !== seqAtStart || flushing) {
-        useBoard.setState({ presence: res.presence, agents: res.agents, prompts: res.prompts, reports: res.reports })
+        useBoard.setState({ presence: res.presence, agents: res.agents, prompts: res.prompts, reports: res.reports, agentDeletions: res.agentDeletions, synced: true })
         return
       }
       const elements = { ...s.elements }
@@ -154,6 +154,8 @@ export function startSync(boardId: string): () => void {
         agents: res.agents,
         prompts: res.prompts,
         reports: res.reports,
+        agentDeletions: res.agentDeletions,
+        synced: true,
         ...(glide.length ? { glideIds: new Set([...s.glideIds, ...glide]) } : {}),
         ...(changed
           ? {

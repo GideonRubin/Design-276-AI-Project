@@ -110,7 +110,11 @@ describe('agent API', () => {
     const res = await req('POST', '/agent/boards/demo/notes', { author: 'Bot', text: 'What if no queue?', nearElementId: 'a' })
     expect(res.status).toBe(201)
     expect(res.body).toMatchObject({ kind: 'note', authorType: 'agent', authorName: 'Bot' })
-    expect(res.body.x).toBeGreaterThanOrEqual(180)
+    // Placed next to note "a" (0,0 180×180) without overlapping it.
+    const b = res.body
+    const overlaps = b.x < 180 && b.x + b.w > 0 && b.y < 180 && b.y + b.h > 0
+    expect(overlaps).toBe(false)
+    expect(Math.hypot(b.x, b.y)).toBeLessThan(400)
     expect(Math.abs(res.body.rotation)).toBeLessThanOrEqual(3)
   })
 
@@ -309,6 +313,44 @@ describe('prompting agents', () => {
     expect((await inbox(claude.token)).events.map((e: any) => e.thread.id)).toEqual(['c9'])
   })
 
+  it('lets agents prompt each other (never themselves), with a loop guard', async () => {
+    const designer = await invite('demo', 'Designer')
+    const skeptic = await invite('demo', 'Skeptic')
+
+    // Designer starts a thread mentioning Skeptic → Skeptic is prompted, Designer isn't.
+    const thread = (await req('POST', '/agent/boards/demo/comments', { body: '@Skeptic does this hold up?', anchor: { x: 0, y: 0 } }, designer.token)).body
+    const ev = (await inbox(skeptic.token)).events
+    expect(ev).toHaveLength(1)
+    expect(ev[0]).toMatchObject({ kind: 'mention', message: { author: { name: 'Designer', type: 'agent' } } })
+    expect(ev[0].prompt).toContain('Designer (another agent)')
+    expect(ev[0].prompt).toContain('until it is fully done')
+    expect((await inbox(designer.token)).events).toHaveLength(0)
+
+    // Skeptic replies → Designer (thread starter) is prompted; Skeptic isn't.
+    await req('POST', `/agent/boards/demo/comments/${thread.id}/replies`, { body: 'Only if we measure wait time.' }, skeptic.token)
+    expect((await inbox(designer.token)).events.map((e: any) => e.kind)).toEqual(['reply'])
+    expect((await inbox(skeptic.token)).events).toHaveLength(0)
+
+    // Agents commenting on another agent's note prompts its author.
+    const note = (await req('POST', '/agent/boards/demo/notes', { text: 'Ritual: 5-min wait check' }, designer.token)).body
+    await req('POST', '/agent/boards/demo/comments', { body: 'Who owns this?', anchor: { elementId: note.id } }, skeptic.token)
+    expect((await inbox(designer.token)).events.map((e: any) => e.kind)).toContain('comment_on_yours')
+
+    // Loop guard: after a long run of agent-only replies, they stop pinging each other in that thread…
+    for (let i = 0; i < 8; i++) {
+      const who = i % 2 ? designer : skeptic
+      await req('POST', `/agent/boards/demo/comments/${thread.id}/replies`, { body: `round ${i}` }, who.token)
+    }
+    await req('POST', '/agent/boards/demo/inbox/ack', { ids: (await inbox(designer.token)).events.map((e: any) => e.id) }, designer.token)
+    await req('POST', `/agent/boards/demo/comments/${thread.id}/replies`, { body: 'one more' }, skeptic.token)
+    expect((await inbox(designer.token)).events).toHaveLength(0)
+    // …until a person joins in, which resets it.
+    await req('PATCH', '/boards/demo/ops', { ops: [humanReply('rh', thread.id, 'keep going, both of you')] }, null)
+    await req('POST', '/agent/boards/demo/inbox/ack', { ids: (await inbox(designer.token)).events.map((e: any) => e.id) }, designer.token)
+    await req('POST', `/agent/boards/demo/comments/${thread.id}/replies`, { body: 'ok!' }, skeptic.token)
+    expect((await inbox(designer.token)).events).toHaveLength(1)
+  })
+
   it('does not re-prompt on edits, and long-poll returns as soon as something arrives', async () => {
     const claude = await invite('demo', 'Claude')
     await req('PATCH', '/boards/demo/ops', { ops: [humanComment('c1', 'no mention')] }, null)
@@ -461,7 +503,10 @@ describe('reports', () => {
     const ev = (await req('GET', '/agent/boards/demo/inbox', undefined, claude.token)).body.events
     expect(ev).toHaveLength(1)
     expect(ev[0].kind).toBe('report_request')
-    expect(ev[0].instructions).toContain('## <one section per topic')
+    expect(ev[0].instructions).toContain('plain, natural language')
+    expect(ev[0].instructions).toContain('## <one short section per topic')
+    expect(ev[0].instructions).toContain("don't say who suggested what")
+    expect(JSON.stringify(ev[0].board)).not.toContain('"author"') // no names to attribute ideas to
     expect(ev[0].board.topics[0].title).toBe('Pain points')
     expect(ev[0].respond.submit.path).toBe(`/api/agent/boards/demo/reports/${r.body.id}`)
     expect((await req('GET', `/boards/demo/reports`, undefined, null)).body.reports[0].status).toBe('writing')
@@ -474,6 +519,212 @@ describe('reports', () => {
     const full = (await req('GET', `/boards/demo/reports/${r.body.id}`, undefined, null)).body
     expect(full).toMatchObject({ status: 'ready', markdown: md })
     expect((await req('GET', '/agent/boards/demo/inbox', undefined, claude.token)).body.events).toHaveLength(0)
+  })
+})
+
+describe('agents deleting (on request) and direct messages', () => {
+  const human = (op: any) => req('PATCH', '/boards/demo/ops', { ops: [op] }, null)
+  const hc = (id: string, body: string, extra: any = {}) => ({
+    entity: 'comment', op: 'upsert',
+    data: { id, anchor: { type: 'point', x: 0, y: 0 }, body, authorId: 'host', authorName: 'Gidi', authorType: 'human', ...extra },
+  })
+  let designer: { token: string; invite: { id: string } }
+  let skeptic: { token: string; invite: { id: string } }
+  beforeEach(async () => {
+    await req('POST', '/boards', { id: 'demo' }, null)
+    await req('PATCH', '/boards/demo/ops', {
+      ops: [
+        { entity: 'element', op: 'upsert', data: note('a', 0, 0, 'keep me') },
+        { entity: 'element', op: 'upsert', data: note('dup', 300, 0, 'duplicate') },
+        { entity: 'element', op: 'upsert', data: { id: 'arr', kind: 'shape', shape: 'arrow', x: 180, y: 90, w: 120, h: 1, points: [[0, 0], [120, 0]], bindings: { start: 'a', end: 'dup' } } },
+        hc('pin', 'about the dup', { anchor: { type: 'element', elementId: 'dup', dx: 10, dy: 10 } }),
+      ],
+    }, null)
+    designer = await invite('demo', 'Designer')
+    skeptic = await invite('demo', 'Skeptic')
+  })
+
+  it('refuses to delete until a person asks, then deletes, logs it, and can be restored', async () => {
+    const no = await req('POST', '/agent/boards/demo/delete', { ids: ['dup'] }, designer.token)
+    expect(no.status).toBe(403)
+    expect((await req('GET', '/agent/session', undefined, designer.token)).body.canDelete).toBe(false)
+
+    // A person asks the Designer (not the Skeptic) to clean up.
+    await human(hc('ask', '@Designer please clean up the duplicates'))
+    expect((await req('GET', '/agent/session', undefined, designer.token)).body.canDelete).toBe(true)
+    expect((await req('POST', '/agent/boards/demo/delete', { ids: ['dup'] }, skeptic.token)).status).toBe(403)
+
+    const yes = await req('POST', '/agent/boards/demo/delete', { ids: ['dup', 'nope'], reason: 'duplicate note' }, designer.token)
+    expect(yes.status).toBe(200)
+    expect(yes.body).toMatchObject({ deleted: ['dup'], unknown: ['nope'] })
+    let board = (await req('GET', '/boards/demo', undefined, null)).body
+    expect(board.elements.map((e: any) => e.id).sort()).toEqual(['a', 'arr'])
+    expect(board.elements.find((e: any) => e.id === 'arr').bindings.end).toBeNull() // arrow detached, not deleted
+    expect(board.comments.find((c: any) => c.id === 'pin').anchor.type).toBe('point') // comment kept in place
+
+    const changes = (await req('GET', '/boards/demo/changes?since=0&pid=host&sid=sid_host_tab_1', undefined, null)).body
+    expect(changes.agentDeletions[0]).toMatchObject({ agentName: 'Designer', count: 1, reason: 'duplicate note', restoredAt: null })
+
+    // Anyone on the board can restore it, exactly as it was.
+    expect((await req('POST', `/boards/demo/agent-deletions/${changes.agentDeletions[0].id}/restore`, { sid: 'sid_host_tab_1' }, null)).status).toBe(200)
+    board = (await req('GET', '/boards/demo', undefined, null)).body
+    expect(board.elements.map((e: any) => e.id).sort()).toEqual(['a', 'arr', 'dup'])
+    expect(board.elements.find((e: any) => e.id === 'arr').bindings.end).toBe('dup')
+    expect(board.comments.find((c: any) => c.id === 'pin').anchor).toMatchObject({ type: 'element', elementId: 'dup' })
+  })
+
+  it('delivers direct messages only to that agent, keeps them private, and a "delete" DM grants deleting', async () => {
+    await human(hc('dm1', 'Remove the duplicate note please', { dmInviteId: designer.invite.id }))
+    const ev = (await req('GET', '/agent/boards/demo/inbox', undefined, designer.token)).body.events
+    expect(ev).toHaveLength(1)
+    expect(ev[0]).toMatchObject({ kind: 'direct', message: { body: 'Remove the duplicate note please' } })
+    expect(ev[0].thread).toMatchObject({ id: 'dm1', direct: true })
+    expect((await req('GET', '/agent/boards/demo/inbox', undefined, skeptic.token)).body.events).toHaveLength(0)
+    expect((await req('GET', '/agent/session', undefined, designer.token)).body.canDelete).toBe(true)
+
+    // Private: the Skeptic's summary doesn't include it; the Designer's does.
+    expect((await req('GET', '/agent/boards/demo/summary', undefined, skeptic.token)).body.threads.map((t: any) => t.id)).not.toContain('dm1')
+    expect((await req('GET', '/agent/boards/demo/summary', undefined, designer.token)).body.threads.map((t: any) => t.id)).toContain('dm1')
+
+    // The agent answers in the DM; that pings nobody else. A follow-up from the person pings the Designer again.
+    await req('POST', '/agent/boards/demo/comments/dm1/replies', { body: 'Done, removed it.' }, designer.token)
+    expect((await req('GET', '/agent/boards/demo/inbox', undefined, skeptic.token)).body.events).toHaveLength(0)
+    await human({ entity: 'reply', op: 'upsert', data: { id: 'dm1r', commentId: 'dm1', body: 'thanks, now tidy the rest', authorId: 'host', authorName: 'Gidi', authorType: 'human' } })
+    expect((await req('GET', '/agent/boards/demo/inbox', undefined, designer.token)).body.events.map((e: any) => e.kind)).toEqual(['direct'])
+  })
+})
+
+describe('the Orchestrator', () => {
+  const settle = () => getDb().execute({ sql: `UPDATE agent_events SET created_at = ? WHERE kind = 'board_activity'`, args: [Date.now() - 60_000] })
+
+  it('is nudged (once, after a quiet period) with what other agents added, and never by its own work', async () => {
+    await req('POST', '/boards', { id: 'demo' }, null)
+    const orch = await invite('demo', 'Orchestrator')
+    const designer = await invite('demo', 'Designer')
+    const skeptic = await invite('demo', 'Skeptic')
+    const inbox = async () => (await req('GET', '/agent/boards/demo/inbox', undefined, orch.token)).body.events
+
+    await req('POST', '/agent/boards/demo/notes', { text: 'Idea A' }, designer.token)
+    await req('POST', '/agent/boards/demo/notes', { text: 'Idea B' }, designer.token)
+    const thread = (await req('POST', '/agent/boards/demo/comments', { body: 'A will not scale', anchor: { x: 0, y: 0 } }, skeptic.token)).body
+    expect(await inbox()).toHaveLength(0) // still settling: agents were active just now
+
+    await settle()
+    let ev = await inbox()
+    expect(ev).toHaveLength(1) // one nudge for the whole burst
+    expect(ev[0].kind).toBe('board_activity')
+    expect(ev[0].prompt).toMatch(/Designer, Skeptic added to the board/)
+    expect(ev[0].prompt).toContain('Group related notes into topics')
+    expect(ev[0].contributions.map((c: any) => c.text).sort()).toEqual(['A will not scale', 'Idea A', 'Idea B'])
+    expect(ev[0].board.notes).toHaveLength(2)
+    expect(await inbox()).toHaveLength(0) // delivered = done
+
+    // It may delete without a person asking (other agents can't), and it's still restorable.
+    expect((await req('POST', '/agent/boards/demo/delete', { ids: [thread.id] }, designer.token)).status).toBe(403)
+    const dup = (await req('POST', '/agent/boards/demo/notes', { text: 'Idea A' }, designer.token)).body
+    await settle()
+    await inbox()
+    const del = await req('POST', '/agent/boards/demo/delete', { ids: [dup.id], reason: 'duplicate of Idea A' }, orch.token)
+    expect(del.status).toBe(200)
+    const logged = (await req('GET', '/boards/demo/changes?since=0', undefined, null)).body.agentDeletions[0]
+    expect(logged).toMatchObject({ agentName: 'Orchestrator', reason: 'duplicate of Idea A', count: 1 })
+
+    // Its own reorganizing doesn't nudge itself.
+    await req('POST', '/agent/boards/demo/topics', { title: 'Ideas', elementIds: ev[0].contributions.filter((c: any) => c.type === 'note').map((c: any) => c.id) }, orch.token)
+    await settle()
+    expect(await inbox()).toHaveLength(0)
+
+    // New work by others → a new nudge with only the new stuff.
+    await req('POST', `/agent/boards/demo/comments/${thread.id}/replies`, { body: 'Pilot it with one team first' }, designer.token)
+    await settle()
+    ev = await inbox()
+    expect(ev.map((e: any) => e.kind)).toContain('board_activity')
+    const nudge = ev.find((e: any) => e.kind === 'board_activity')
+    expect(nudge.contributions.map((c: any) => c.text)).toEqual(['Pilot it with one team first'])
+  })
+})
+
+describe('spatial awareness', () => {
+  let t: string
+  const text = (id: string, x: number, y: number, body: string) => ({ entity: 'element', op: 'upsert', data: { id, kind: 'text', x, y, w: body.length * 14, h: 40, text: body } })
+  const n = (id: string, x: number, y: number, body: string) => ({ entity: 'element', op: 'upsert', data: note(id, x, y, body) })
+  beforeEach(async () => {
+    await req('POST', '/boards', { id: 'demo' }, null)
+    // A person's setup: a topic, the question at the top, a line down the middle, "yes" / "no" on each side.
+    await req('PATCH', '/boards/demo/ops', {
+      ops: [
+        { entity: 'element', op: 'upsert', data: { id: 'topic', kind: 'shape', shape: 'rect', role: 'section', x: 0, y: 0, w: 900, h: 700, text: 'Decision' } },
+        text('q', 250, 70, 'should i vote for trump?'),
+        { entity: 'element', op: 'upsert', data: { id: 'line', kind: 'shape', shape: 'line', x: 450, y: 140, w: 0, h: 520, points: [[0, 0], [0, 520]] } },
+        text('yes', 150, 160, 'yes'),
+        text('no', 650, 160, 'no'),
+        n('pro', 100, 240, 'Lower taxes'),
+        n('con', 600, 240, 'Tariffs raise prices'),
+        n('con2', 640, 260, 'Overlaps the other con'), // overlapping on purpose
+      ],
+    }, null)
+    t = (await invite('demo', 'Orchestrator')).token
+  })
+
+  it('reads a question + dividing line + yes/no labels as a two-sided structure', async () => {
+    const s = (await req('GET', '/agent/boards/demo/summary', undefined, t)).body
+    expect(s.structure).toHaveLength(1)
+    const d = s.structure[0]
+    expect(d).toMatchObject({ type: 'divider', question: 'should i vote for trump?', orientation: 'vertical', topic: { id: 'topic' } })
+    const left = d.sides.find((x: any) => x.side === 'left')
+    const right = d.sides.find((x: any) => x.side === 'right')
+    expect(left.labels).toEqual(['yes'])
+    expect(right.labels).toEqual(['no'])
+    expect(left.items.map((i: any) => i.id)).toEqual(['pro'])
+    expect(right.items.map((i: any) => i.id).sort()).toEqual(['con', 'con2'])
+    expect(d.meaning).toContain('two-sided answer to "should i vote for trump?"')
+    // Each note knows where it sits.
+    expect(s.notes.find((x: any) => x.id === 'pro').where).toMatchObject({ topic: 'Decision', side: 'left', sideLabel: 'yes', answers: 'should i vote for trump?' })
+    expect(s.notes.find((x: any) => x.id === 'con').where).toMatchObject({ side: 'right', sideLabel: 'no' })
+    // Overlaps are reported.
+    expect(s.problems.overlappingItems).toContainEqual(['con', 'con2'])
+  })
+
+  it('places a note next to a label on the same side, inside the topic, without overlapping', async () => {
+    const res = await req('POST', '/agent/boards/demo/notes', { text: 'Another yes reason', nearElementId: 'yes' }, t)
+    expect(res.status).toBe(201)
+    const { x, y, w, h } = res.body
+    expect(x + w / 2).toBeLessThan(450) // stayed on the "yes" side
+    expect(x).toBeGreaterThanOrEqual(0)
+    expect(y + h).toBeLessThanOrEqual(700) // inside the topic
+    const s = (await req('GET', '/agent/boards/demo/summary', undefined, t)).body
+    expect(s.problems.overlappingItems.flat()).not.toContain(res.body.id)
+    expect(s.notes.find((x: any) => x.id === res.body.id).where.sideLabel).toBe('yes')
+  })
+
+  it('arranges a topic into a tidy grid, keeping the question on top and each side on its side', async () => {
+    expect((await req('POST', '/agent/boards/demo/arrange', { topicId: 'topic' }, t)).status).toBe(200)
+    const s = (await req('GET', '/agent/boards/demo/summary', undefined, t)).body
+    expect(s.problems.overlappingItems).toEqual([])
+    const d = s.structure[0]
+    expect(d.question).toBe('should i vote for trump?')
+    expect(d.sides.find((x: any) => x.side === 'left').items.map((i: any) => i.id)).toEqual(['pro'])
+    expect(d.sides.find((x: any) => x.side === 'right').items.map((i: any) => i.id).sort()).toEqual(['con', 'con2'])
+    const els = (await req('GET', '/boards/demo', undefined, null)).body.elements
+    const q = els.find((e: any) => e.id === 'q')
+    const pro = els.find((e: any) => e.id === 'pro')
+    expect(q.y).toBeLessThan(pro.y) // question stays above the sides
+  })
+
+  it("keeps the line's original topic when an agent later drops a topic across it, and flags the straddle", async () => {
+    await new Promise((r) => setTimeout(r, 5)) // created after the line
+    await req('POST', '/agent/boards/demo/topics', { title: 'Brainstorm', x: 50, y: 200, w: 800, h: 300 }, t)
+    const s = (await req('GET', '/agent/boards/demo/summary', undefined, t)).body
+    expect(s.structure[0]).toMatchObject({ topic: { id: 'topic' }, question: 'should i vote for trump?' })
+    expect(s.structure[0].sides.map((x: any) => x.labels)).toEqual([['yes'], ['no']])
+    expect(s.problems.straddlingDivider.map((x: any) => x.lineId)).toEqual(['line'])
+  })
+
+  it('spaces overlapping topics apart', async () => {
+    await req('PATCH', '/boards/demo/ops', { ops: [{ entity: 'element', op: 'upsert', data: { id: 'topic2', kind: 'shape', shape: 'rect', role: 'section', x: 500, y: 300, w: 700, h: 400, text: 'Other' } }] }, null)
+    expect((await req('GET', '/agent/boards/demo/summary', undefined, t)).body.problems.overlappingTopics).toContainEqual(['topic', 'topic2'])
+    await req('POST', '/agent/boards/demo/arrange', {}, t)
+    expect((await req('GET', '/agent/boards/demo/summary', undefined, t)).body.problems.overlappingTopics).toEqual([])
   })
 })
 

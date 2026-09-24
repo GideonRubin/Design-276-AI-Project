@@ -4,6 +4,7 @@ import { uid } from '../../../shared/ids'
 import { actions, useBoard } from '../store/board'
 import { Avatar } from '../elements/Avatar'
 import { MentionTextarea } from '../lib/MentionTextarea'
+import { agentActivity } from '../lib/agentState'
 
 const timeAgo = (t: number) => {
   const s = Math.round((Date.now() - t) / 1000)
@@ -116,6 +117,7 @@ export function ThreadPanel() {
   }
   const pausedNames = new Set(agents.filter((a) => a.paused).map((a) => a.agentName))
   const listeningNames = new Set(agents.filter((a) => a.listening && !a.paused).map((a) => a.agentName))
+  const workingNames = new Set(agents.filter((a) => agentActivity(a, allPrompts) === 'working').map((a) => a.agentName))
   const liveAgentNames = new Set(agents.map((a) => a.agentName))
 
   const mention = (name: string) => {
@@ -209,7 +211,7 @@ export function ThreadPanel() {
           />
         ))}
         {[...pendingByAgent.values()].map((p) => (
-          <div key={p.inviteId} className={`thinking ${p.status}${(p.status === 'queued' && !listeningNames.has(p.agentName)) || pausedNames.has(p.agentName) ? ' stalled' : ''}`}>
+          <div key={p.inviteId} className={`thinking ${p.status}${(p.status === 'queued' && !listeningNames.has(p.agentName) && !workingNames.has(p.agentName)) || pausedNames.has(p.agentName) ? ' stalled' : ''}`}>
             <span className="dots" aria-hidden>
               <i />
               <i />
@@ -221,6 +223,8 @@ export function ThreadPanel() {
               ? `${p.agentName} is thinking…`
               : listeningNames.has(p.agentName)
                 ? `Sending to ${p.agentName}…`
+                : workingNames.has(p.agentName)
+                  ? `${p.agentName} is busy with something else. It'll pick this up when it checks in next.`
                 : liveAgentNames.has(p.agentName)
                   ? `${p.agentName} isn't listening right now. It'll get this when it checks in (click its card to wake it).`
                   : `${p.agentName} isn't connected right now`}

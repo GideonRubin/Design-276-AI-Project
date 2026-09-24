@@ -107,7 +107,8 @@ export const openapi = {
             color: { type: 'string', enum: ['yellow', 'pink', 'mint', 'lilac', 'sky'], default: 'yellow' },
             x: { type: 'number' },
             y: { type: 'number' },
-            nearElementId: { type: 'string' },
+            nearElementId: { type: 'string', description: 'Place next to this element: same topic, same side of any dividing line, no overlap.' },
+            topicId: { type: 'string', description: 'Place in the first free spot inside this topic (it grows if full).' },
           },
         }),
         responses: { 201: ok('Created note') },
@@ -191,6 +192,17 @@ export const openapi = {
           },
         }),
         responses: { 201: ok('Created section (with contains[])') },
+      },
+    },
+    '/agent/boards/{id}/arrange': {
+      post: {
+        tags: ['Agent'],
+        summary: 'Tidy the layout without pixel math',
+        description:
+          '{topicId}: pack that topic into a neat grid: labels on top, sides of a dividing line kept apart, the topic resized to fit. {}: space overlapping topics apart (contents move with them).',
+        parameters: [boardId],
+        requestBody: json({ type: 'object', properties: { topicId: { type: 'string' }, order: { type: 'array', items: { type: 'string' } } } }),
+        responses: { 200: ok('{ moved, reroutedArrows }') },
       },
     },
     '/agent/boards/{id}/move': {
